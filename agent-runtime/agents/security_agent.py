@@ -4,8 +4,11 @@ class SecurityAgent:
 
         print("Security scan...")
 
-        state.security_report = "No issues"
+        code = state.generated_code
 
-        state.finished = True
+        if "eval(" in code or "os.system" in code:
+            state.security_report = "unsafe"
+        else:
+            state.security_report = "No issues"
 
         return state

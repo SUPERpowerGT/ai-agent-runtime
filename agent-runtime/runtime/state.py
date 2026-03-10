@@ -7,31 +7,26 @@ from typing import List
 # dataclass声明注释，无需手动构造函数
 @dataclass
 class TaskState:
-    
-    # 任务id，追踪任务序列（分布式）
+
     task_id: str
-    # 用户输入。一切的起点
     user_request: str
-    
-    # agent生成的计划（LLM思考结果）
+
     plan: str = ""
-    
-    # RAG检索的知识
+
     retrieved_context: List[str] = field(default_factory=list)
-    
-    # Coder agent的输出：生成的代码
+
     generated_code: str = ""
-    
-    # Test agent的输出：测试的结果
+
     test_result: str = ""
 
-    # error 日志
     error_log: str = ""
 
-    # 安全扫描结果
     security_report: str = ""
 
-    # 循环控制，agent修改代码重试次数
     retry_count: int = 0
-    
+
     finished: bool = False
+
+    next_agent: str = ""
+
+    history: List[str] = field(default_factory=list)
