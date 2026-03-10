@@ -1,0 +1,32 @@
+# python
+__pycache__/
+*.pyc
+
+# env
+.env
+.venv
+venv/
+
+# mac
+.DS_Store
+
+# logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# build
+dist/
+build/
+
+# data
+*.sqlite
+*.db
+
+# models
+models/
+*.bin
+*.pt
+*.safetensors
