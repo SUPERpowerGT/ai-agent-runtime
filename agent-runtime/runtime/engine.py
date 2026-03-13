@@ -1,4 +1,4 @@
-from agents.orchestrator import OrchestratorAgent
+from agents.orchestrator_agent import OrchestratorAgent
 from agents.research_agent import ResearchAgent
 from agents.coder_agent import CoderAgent
 from agents.tester_agent import TesterAgent

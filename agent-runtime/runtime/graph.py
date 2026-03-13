@@ -1,6 +1,6 @@
 from runtime.node import Node
 
-from agents.orchestrator import OrchestratorAgent
+from agents.orchestrator_agent import OrchestratorAgent
 from agents.router_agent import RouterAgent
 from agents.research_agent import ResearchAgent
 from agents.coder_agent import CoderAgent
