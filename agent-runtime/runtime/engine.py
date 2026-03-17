@@ -1,39 +1,31 @@
-from agents.orchestrator_agent import OrchestratorAgent
-from agents.research_agent import ResearchAgent
-from agents.coder_agent import CoderAgent
-from agents.tester_agent import TesterAgent
-from agents.fix_agent import FixAgent
-from agents.security_agent import SecurityAgent
+from runtime.register_agents import registry
+from state.state import TaskState
+
 
 class AgentRuntime:
+    """
+    Multi-Agent Runtime Engine
+    """
 
-    def __init__(self, graph):
-        self.graph = graph
+    def run(self, state: TaskState) -> TaskState:
 
-    def run(self, state):
+        while state.can_continue():
 
-        current = self.graph.start_node
-        step = 0
-        MAX_STEPS = 50
+            agent_name = state.next_agent
 
-        while current:
-
-            step += 1
-            if step > MAX_STEPS:
-                print("Max steps reached, stopping.")
+            if not agent_name:
+                print("No next agent, stopping runtime.")
                 break
 
-            print(f"Running {current.name}")
-            state.history.append(current.name)
-            state = current.agent.run(state)
+            try:
+                agent = registry.get(agent_name)
 
-            next_node = None
+            except Exception:
+                state.add_error(f"Agent not found: {agent_name}")
+                break
 
-            for condition, node in current.edges:
-                if condition(state):
-                    next_node = node
-                    break
+            print(f"Running agent: {agent_name}")
 
-            current = next_node
-        
+            state = agent.run(state)
+
         return state
