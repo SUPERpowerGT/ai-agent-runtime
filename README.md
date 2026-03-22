@@ -47,17 +47,22 @@ The design goals are:
 
 - `WebSearchTool`: web search abstraction backed by DuckDuckGo
 - `ToolRegistry`: runtime tool lookup
-- `llm_client`: OpenAI-compatible client currently configured for local Ollama
+- `runtime/services/llm.py`: OpenAI-compatible LLM service currently configured for local Ollama
 
 ## Repository Layout
 
 ```text
 agent-runtime/
 ├── agents/          # Agent implementations and BaseAgent
-├── infra/           # LLM client and config
+├── infra/           # Config and compatibility shims
 ├── knowledge/       # Knowledge sources / placeholders
 ├── memory/          # Memory-related modules
-├── runtime/         # Runtime loop, registry, tool init
+├── runtime/
+│   ├── bootstrap/   # Agent/tool bootstrap and registry wiring
+│   ├── policies/    # Transition and routing policies
+│   ├── services/    # Logging, LLM, task-spec services
+│   ├── engine.py    # Runtime loop
+│   └── registry.py  # Agent registry
 ├── state/           # Shared TaskState and record models
 ├── tools/           # Tool abstractions and providers
 ├── main.py          # Entry point prototype
@@ -204,7 +209,7 @@ This framework is useful as a base for experiments such as:
 Planned or natural next steps include:
 
 - unify all agents under the `BaseAgent` contract
-- finish wiring the runtime entry path
+- continue refining runtime service and policy boundaries
 - add guardrails and action-policy enforcement
 - improve test coverage for runtime state transitions
 - support richer tools and artifact handling

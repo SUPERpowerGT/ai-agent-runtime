@@ -1,5 +1,8 @@
 # agents/base_agent.py
 
+import time
+
+from runtime.policies.transitions import set_next_planned_agent
 from state.state import TaskState
 
 
@@ -51,6 +54,8 @@ class BaseAgent:
             act          -> 执行动作
             after_run    -> 执行后 hook
         """
+
+        started_at = time.perf_counter()
 
         try:
             # 记录当前 agent
@@ -105,6 +110,15 @@ class BaseAgent:
             # 执行后 hook
             self.after_run(new_state)
 
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            new_state.record_agent_duration(self.name, duration_ms)
+            new_state.add_trace(
+                agent_name=self.name,
+                stage="timing",
+                message="agent finished",
+                metadata={"duration_ms": round(duration_ms, 2)},
+            )
+
             return new_state
 
         except Exception as e:
@@ -123,6 +137,8 @@ class BaseAgent:
                 message=f"{self.name} raised an exception",
                 metadata={"error": str(e)},
             )
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            state.record_agent_duration(self.name, duration_ms)
 
             return state
 
@@ -204,3 +220,9 @@ class BaseAgent:
         - 非法 tool 调用
         """
         return decision
+
+    def advance_to_next_planned_agent(self, state: TaskState) -> TaskState:
+        """
+        根据 state.plan 推进到下一个 agent。
+        """
+        return set_next_planned_agent(state, self.name)

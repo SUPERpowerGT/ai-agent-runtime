@@ -1,4 +1,5 @@
-from runtime.register_agents import registry
+from runtime.bootstrap.agents import registry
+from runtime.services.logging import log_runtime
 from state.state import TaskState
 
 
@@ -14,7 +15,7 @@ class AgentRuntime:
             agent_name = state.next_agent
 
             if not agent_name:
-                print("No next agent, stopping runtime.")
+                log_runtime("no next agent, stopping runtime")
                 break
 
             try:
@@ -24,7 +25,7 @@ class AgentRuntime:
                 state.add_error(f"Agent not found: {agent_name}")
                 break
 
-            print(f"Running agent: {agent_name}")
+            log_runtime(f"dispatch -> {agent_name}")
 
             state = agent.run(state)
 

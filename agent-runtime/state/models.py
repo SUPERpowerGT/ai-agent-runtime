@@ -58,3 +58,7 @@ class RuntimeMetrics:
     llm_calls: int = 0
     tool_calls: int = 0
     agent_runs: Dict[str, int] = field(default_factory=dict)
+    agent_durations_ms: Dict[str, float] = field(default_factory=dict)
+    llm_time_ms: float = 0.0
+    llm_calls_by_agent: Dict[str, int] = field(default_factory=dict)
+    llm_time_by_agent_ms: Dict[str, float] = field(default_factory=dict)

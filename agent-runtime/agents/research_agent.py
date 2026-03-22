@@ -1,61 +1,166 @@
+from agents.base_agent import BaseAgent
+from runtime.services.logging import log_agent, preview_text
+from runtime.services.llm import call_llm
 from state.state import TaskState
-from infra.llm_client import call_llm
 
 
-class ResearchAgent:
+class ResearchAgent(BaseAgent):
+    """
+    ResearchAgent 负责检索外部信息并提炼为可供后续 agent 使用的上下文。
+    """
 
     name = "research"
+    description = "Search the web and summarize relevant context"
 
-    def __init__(self, tool_registry):
+    def __init__(self, tool_registry=None):
         self.tool_registry = tool_registry
 
-    def run(self, state: TaskState) -> TaskState:
+    def _get_tool_registry(self):
+        if self.tool_registry is None:
+            from runtime.bootstrap.tools import init_tools
 
-        print("Running research agent")
+            self.tool_registry = init_tools()
 
-        query = state.user_request
+        return self.tool_registry
 
-        # 调用 web_search tool
-        web_search_tool = self.tool_registry.get("web_search")
+    # --------------------------------------------------
+    # Lifecycle Hooks
+    # --------------------------------------------------
 
+    def before_run(self, state: TaskState):
+        log_agent(self.name, "starting")
+
+        state.add_trace(
+            agent_name=self.name,
+            stage="before_run",
+            message="research agent started",
+        )
+
+    def after_run(self, state: TaskState):
+        state.add_trace(
+            agent_name=self.name,
+            stage="after_run",
+            message="research agent finished",
+        )
+
+    # --------------------------------------------------
+    # Core Agent Stages
+    # --------------------------------------------------
+
+    def perceive(self, state: TaskState):
+        return {
+            "state": state,
+            "query": state.user_request,
+            "user_request": state.user_request,
+        }
+
+    def think(self, observation):
+        query = observation["query"]
+
+        web_search_tool = self._get_tool_registry().get("web_search")
         results = web_search_tool.run(query=query)
 
-        # 保存原始搜索结果
-        if "research_raw" not in state.artifacts:
-            state.artifacts["research_raw"] = []
-
-        state.artifacts["research_raw"].extend(results)
-
         prompt = f"""
-You are a research assistant.
+You are the research agent in a multi-agent runtime.
 
-Summarize the following information into useful context.
+Your role is ONLY to gather and summarize useful background context.
+Do NOT write final code.
+Do NOT propose a finished solution.
+Do NOT include a complete solution or a copy-paste-ready final answer.
+Do NOT include markdown code fences.
+Do NOT include full code snippets unless a snippet is absolutely necessary to explain an API or syntax detail.
+
+Focus on:
+- relevant facts from the search results
+- important syntax or API details
+- constraints or implementation hints
+
+Keep the summary short and practical.
 
 User request:
-{state.user_request}
+{observation["user_request"]}
 
 Search results:
 {results}
 
-Return a concise summary.
+Return ONLY a concise plain-text summary for another agent to use.
 """
 
-        summary = call_llm(prompt)
+        summary = call_llm(prompt, state=observation["state"], agent_name=self.name)
 
+        return {
+            "results": results,
+            "summary": summary,
+        }
+
+    def act(self, decision, state: TaskState) -> TaskState:
+        results = decision["results"]
+        summary = decision["summary"]
+
+        if "research_raw" not in state.artifacts:
+            state.artifacts["research_raw"] = []
+
+        state.artifacts["research_raw"].extend(results)
         state.working_memory["research"] = summary
+        state.retrieved_context = [item.get("snippet", "") for item in results if item.get("snippet")]
+        state.record_agent_output(self.name, summary)
 
-        # 更新 next agent
-        if "research" in state.plan:
+        self.advance_to_next_planned_agent(state)
 
-            index = state.plan.index("research")
-
-            if index + 1 < len(state.plan):
-                state.next_agent = state.plan[index + 1]
-            else:
-                state.finished = True
-
-        print("Research summary:", summary)
-
-        print("Research results count:", len(results))
+        log_agent(self.name, f"summary={preview_text(summary)}")
+        log_agent(self.name, f"results={len(results)}")
 
         return state
+
+    # --------------------------------------------------
+    # Output Validation
+    # --------------------------------------------------
+
+    def validate_output(self, decision):
+        if not isinstance(decision, dict):
+            raise ValueError("research decision must be a dict")
+
+        if "results" not in decision or "summary" not in decision:
+            raise ValueError("research decision missing required fields")
+
+        summary = decision["summary"].strip()
+
+        prefixes = [
+            "Here's a concise plain-text summary of the search results:",
+            "Here is a concise plain-text summary of the search results:",
+            "Here's a concise plain-text summary:",
+            "Here is a concise plain-text summary:",
+            "Here's a concise summary:",
+            "Here is a concise summary:",
+            "Summary:",
+        ]
+
+        for prefix in prefixes:
+            if summary.startswith(prefix):
+                summary = summary[len(prefix):].strip()
+                break
+
+        summary = summary.replace("```python", "").replace("```", "").strip()
+
+        cleaned_lines = []
+        for line in summary.splitlines():
+            stripped = line.strip()
+
+            if not stripped:
+                if cleaned_lines and cleaned_lines[-1] != "":
+                    cleaned_lines.append("")
+                continue
+
+            if stripped.lower().startswith("def "):
+                continue
+
+            cleaned_lines.append(stripped)
+
+        cleaned_summary = "\n".join(cleaned_lines).strip()
+
+        if not cleaned_summary:
+            raise ValueError("research summary is empty after cleaning")
+
+        decision["summary"] = cleaned_summary
+
+        return decision

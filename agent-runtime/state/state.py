@@ -48,6 +48,7 @@ class TaskState:
     # Core Outputs
     # --------------------------------------------------
 
+    task_spec: Dict[str, Any] = field(default_factory=dict)
     retrieved_context: List[str] = field(default_factory=list)
     generated_code: str = ""
     test_result: str = ""
@@ -219,6 +220,29 @@ class TaskState:
         self.metrics.agent_runs[agent_name] = (
             self.metrics.agent_runs.get(agent_name, 0) + 1
         )
+
+    def record_agent_duration(self, agent_name: str, duration_ms: float) -> None:
+        """
+        记录单个 agent 的累计耗时
+        """
+        self.metrics.agent_durations_ms[agent_name] = (
+            self.metrics.agent_durations_ms.get(agent_name, 0.0) + duration_ms
+        )
+
+    def record_llm_call(self, agent_name: Optional[str], duration_ms: float) -> None:
+        """
+        记录一次 LLM 调用信息
+        """
+        self.metrics.llm_calls += 1
+        self.metrics.llm_time_ms += duration_ms
+
+        if agent_name:
+            self.metrics.llm_calls_by_agent[agent_name] = (
+                self.metrics.llm_calls_by_agent.get(agent_name, 0) + 1
+            )
+            self.metrics.llm_time_by_agent_ms[agent_name] = (
+                self.metrics.llm_time_by_agent_ms.get(agent_name, 0.0) + duration_ms
+            )
 
     def can_continue(self) -> bool:
         """

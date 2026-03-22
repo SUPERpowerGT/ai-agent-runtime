@@ -1,4 +1,4 @@
-from runtime.agent_registry import AgentRegistry
+from runtime.registry import AgentRegistry
 
 from agents.orchestrator_agent import OrchestratorAgent
 from agents.research_agent import ResearchAgent
@@ -12,7 +12,7 @@ registry = AgentRegistry()
 
 registry.register(OrchestratorAgent)
 registry.register(ResearchAgent)
-#registry.register(CoderAgent)
-#registry.register(TesterAgent)
-#registry.register(FixAgent)
-#registry.register(SecurityAgent)
+registry.register(CoderAgent)
+registry.register(TesterAgent)
+registry.register(FixAgent)
+registry.register(SecurityAgent)

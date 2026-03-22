@@ -1,8 +1,13 @@
 # agents/orchestrator_agent.py
 
+import re
+
 from agents.base_agent import BaseAgent
+from runtime.services.logging import log_agent
+from runtime.services.llm import call_llm
+from runtime.services.task_spec import build_task_spec
+from runtime.policies.transitions import normalize_plan
 from state.state import TaskState
-from infra.llm_client import call_llm
 
 
 VALID_AGENTS = {"research", "coder", "tester", "fix", "security"}
@@ -30,7 +35,7 @@ class OrchestratorAgent(BaseAgent):
         """
         Agent 执行前 Hook
         """
-        print("Running orchestrator")
+        log_agent(self.name, "starting")
 
         state.add_trace(
             agent_name=self.name,
@@ -98,22 +103,26 @@ security
 Planning guidelines:
 
 If the task is about implementing something:
-research → coder
+research → coder → tester
 
 If the task is about fixing bugs:
-research → fix
+research → fix → tester
 
 If code is generated or modified:
-tester should usually follow.
+tester must follow before the result is considered complete.
 
 If the task is about security:
 use security.
+
+Hard rule:
+If your plan includes coder or fix, it must also include tester after the last code-changing agent.
 
 Return ONLY a comma-separated list of agent names.
 
 Example:
 research,coder,tester
 research,fix,tester
+coder,tester
 
 User request:
 {observation.user_request}
@@ -124,14 +133,12 @@ User request:
             content="orchestrator planning task",
         )
 
-        response = call_llm(prompt)
+        response = call_llm(prompt, state=observation, agent_name=self.name)
 
         observation.add_message(
             role="assistant",
             content=response,
         )
-
-        print("LLM plan raw:", response)
 
         return response
 
@@ -141,6 +148,7 @@ User request:
         """
 
         state.plan = decision
+        state.task_spec = build_task_spec(state.user_request)
 
         if decision:
             state.next_agent = decision[0]
@@ -154,7 +162,8 @@ User request:
             metadata={"plan": decision},
         )
 
-        print("Parsed plan:", state.plan)
+        log_agent(self.name, f"plan={state.plan}")
+        log_agent(self.name, f"task_spec={state.task_spec}")
 
         return state
 
@@ -166,17 +175,48 @@ User request:
         """
         解析 LLM 输出并过滤非法 agent
         """
-
-        tokens = decision.replace("\n", " ").split(",")
-
-        plan = [
-            token.strip().lower()
-            for token in tokens
-            if token.strip().lower() in VALID_AGENTS
-        ]
+        plan = self._extract_plan_from_text(decision)
 
         if not plan:
-            print("Planner returned empty plan, using fallback plan")
+            log_agent(self.name, "planner returned empty plan, using fallback")
             plan = ["research", "coder", "tester"]
 
+        plan = normalize_plan(plan)
+
         return plan
+
+    def _extract_plan_from_text(self, decision: str) -> list[str]:
+        """
+        从 planner 的回复中提取真正的 agent 序列，而不是说明文字里提到的所有 agent。
+        """
+        text = decision.lower()
+
+        # 先优先找显式的逗号序列，例如 research,coder,tester
+        csv_candidates = re.findall(
+            r"(research|coder|tester|fix|security)(?:\s*,\s*(research|coder|tester|fix|security))+",
+            text,
+        )
+
+        if csv_candidates:
+            csv_strings = re.findall(
+                r"(?:research|coder|tester|fix|security)(?:\s*,\s*(?:research|coder|tester|fix|security))+",
+                text,
+            )
+            best_candidate = max(csv_strings, key=len)
+            matches = re.findall(r"\b(research|coder|tester|fix|security)\b", best_candidate)
+        else:
+            # 再退而求其次，只看“plan/answer/sequence”后面的文本片段
+            focused_match = re.search(
+                r"(?:plan|answer|sequence)\s*[:\-]?\s*(.+)",
+                text,
+                flags=re.DOTALL,
+            )
+            focused_text = focused_match.group(1) if focused_match else text
+            matches = re.findall(r"\b(research|coder|tester|fix|security)\b", focused_text)
+
+        ordered_plan = []
+        for agent_name in matches:
+            if agent_name not in ordered_plan:
+                ordered_plan.append(agent_name)
+
+        return ordered_plan

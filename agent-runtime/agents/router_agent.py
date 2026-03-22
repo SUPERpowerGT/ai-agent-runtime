@@ -1,32 +1,44 @@
-class RouterAgent:
+from agents.base_agent import BaseAgent
+from state.state import TaskState
 
-    def run(self, state):
 
+class RouterAgent(BaseAgent):
+
+    name = "router"
+    description = "Route execution to the next agent based on current state"
+
+    def perceive(self, state: TaskState):
+        return state
+
+    def think(self, observation: TaskState):
         # 先做 research
-        if state.retrieved_context == []:
-            state.next_agent = "research"
+        if observation.retrieved_context == []:
+            return "research"
 
-        elif state.generated_code == "":
-            state.next_agent = "coder"
+        if observation.generated_code == "":
+            return "coder"
 
-        elif state.test_result == "":
-            state.next_agent = "tester"
+        if observation.test_result == "":
+            return "tester"
 
-        elif state.test_result == "FAIL":
+        if observation.test_result == "FAIL":
 
-            if state.retry_count < 3:
-                state.next_agent = "fix"
-            else:
-                state.next_agent = "security"
+            if observation.retry_count < 3:
+                return "fix"
+            return "security"
 
-        elif state.test_result == "PASS" and state.security_report == "":
-            state.next_agent = "security"
+        if observation.test_result == "PASS" and observation.security_report == "":
+            return "security"
 
-        elif state.security_report == "No issues":
-            state.next_agent = "finish"
+        if observation.security_report == "No issues":
+            return None
+
+        return None
+
+    def act(self, decision, state: TaskState) -> TaskState:
+        if decision is None:
             state.finished = True
-
+            state.next_agent = None
         else:
-            state.next_agent = "finish"
-
+            state.next_agent = decision
         return state
