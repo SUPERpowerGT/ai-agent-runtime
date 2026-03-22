@@ -10,7 +10,7 @@ from runtime.policies.transitions import normalize_plan
 from state.state import TaskState
 
 
-VALID_AGENTS = {"research", "coder", "tester", "fix", "security"}
+VALID_AGENTS = {"research", "coder", "tester", "security"}
 
 
 class OrchestratorAgent(BaseAgent):
@@ -93,6 +93,8 @@ coder
 
 fix
 - debug and repair existing code
+- do not put fix in the initial plan
+- fix is only entered later if tester fails
 
 tester
 - validate generated code
@@ -106,7 +108,8 @@ If the task is about implementing something:
 research → coder → tester
 
 If the task is about fixing bugs:
-research → fix → tester
+research → coder → tester
+The runtime will route to fix later only if tester fails.
 
 If code is generated or modified:
 tester must follow before the result is considered complete.
@@ -115,7 +118,12 @@ If the task is about security:
 use security.
 
 Hard rule:
-If your plan includes coder or fix, it must also include tester after the last code-changing agent.
+If your plan includes coder, it must also include tester after coder.
+
+Very important:
+- Do NOT include fix in the initial plan.
+- Only use fix as a recovery path after tester failure; the runtime handles that automatically.
+- Only include security when the user request is explicitly security-focused.
 
 Return ONLY a comma-separated list of agent names.
 
@@ -193,17 +201,17 @@ User request:
 
         # 先优先找显式的逗号序列，例如 research,coder,tester
         csv_candidates = re.findall(
-            r"(research|coder|tester|fix|security)(?:\s*,\s*(research|coder|tester|fix|security))+",
+            r"(research|coder|tester|security)(?:\s*,\s*(research|coder|tester|security))+",
             text,
         )
 
         if csv_candidates:
             csv_strings = re.findall(
-                r"(?:research|coder|tester|fix|security)(?:\s*,\s*(?:research|coder|tester|fix|security))+",
+                r"(?:research|coder|tester|security)(?:\s*,\s*(?:research|coder|tester|security))+",
                 text,
             )
-            best_candidate = max(csv_strings, key=len)
-            matches = re.findall(r"\b(research|coder|tester|fix|security)\b", best_candidate)
+            best_candidate = max(csv_strings, key=len) if csv_strings else ""
+            matches = re.findall(r"\b(research|coder|tester|security)\b", best_candidate)
         else:
             # 再退而求其次，只看“plan/answer/sequence”后面的文本片段
             focused_match = re.search(
@@ -212,7 +220,7 @@ User request:
                 flags=re.DOTALL,
             )
             focused_text = focused_match.group(1) if focused_match else text
-            matches = re.findall(r"\b(research|coder|tester|fix|security)\b", focused_text)
+            matches = re.findall(r"\b(research|coder|tester|security)\b", focused_text)
 
         ordered_plan = []
         for agent_name in matches:

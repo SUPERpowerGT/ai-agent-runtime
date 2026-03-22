@@ -42,6 +42,8 @@ class CoderAgent(BaseAgent):
             "user_request": state.user_request,
             "task_spec": state.task_spec,
             "research_summary": state.working_memory.get("research", ""),
+            "code_contracts": state.artifacts.get("code_contracts", []),
+            "behavior_summaries": state.artifacts.get("behavior_summaries", []),
         }
 
     def think(self, observation):
@@ -49,7 +51,10 @@ class CoderAgent(BaseAgent):
         language = task_spec.get("language") or "the most appropriate language for the request"
         artifact_type = task_spec.get("artifact_type", "code")
         domain = task_spec.get("domain", "general")
+        task_mode = task_spec.get("task_mode", "generate")
         constraints = task_spec.get("constraints", [])
+        code_contracts = observation["code_contracts"]
+        behavior_summaries = observation["behavior_summaries"]
 
         prompt = f"""
 You are a coding agent in a multi-agent runtime.
@@ -65,12 +70,29 @@ Task specification:
 - Language: {language}
 - Artifact type: {artifact_type}
 - Domain: {domain}
+- Task mode: {task_mode}
 - Constraints: {constraints or ["No additional constraints extracted."]}
 
 You must follow the task specification exactly.
 If the artifact type is function, return a function rather than a top-level script.
 If the artifact type is class, return a class.
 If the artifact type is api, return API-oriented code rather than a standalone helper.
+
+Existing code contracts from uploaded files:
+{code_contracts or "No existing code contracts provided."}
+
+Existing behavior summaries from uploaded files:
+{behavior_summaries or "No existing behavior summaries provided."}
+
+If task mode is optimize:
+- preserve existing function names
+- preserve input parameter shapes
+- preserve external behavior
+- improve implementation quality without changing the public contract
+
+If task mode is rewrite:
+- preserve the behavior of the uploaded code
+- translate to the requested language if one is specified
 
 User request:
 {observation["user_request"]}

@@ -38,18 +38,30 @@ class FixAgent(BaseAgent):
     # --------------------------------------------------
 
     def perceive(self, state: TaskState):
+        latest_error = state.error_log[-1] if state.error_log else ""
+
         return {
             "state": state,
             "user_request": state.user_request,
             "task_spec": state.task_spec,
             "generated_code": state.generated_code,
             "errors": list(state.error_log),
+            "latest_error": latest_error,
+            "code_contracts": state.task_spec.get("code_contracts", []),
+            "behavior_summaries": state.task_spec.get("behavior_summaries", []),
+            "failure_report": state.artifacts.get("failure_report", {}),
+            "fix_strategy": state.artifacts.get("fix_strategy", {}),
         }
 
     def think(self, observation):
         task_spec = observation["task_spec"]
         language = task_spec.get("language") or "the language implied by the request"
         artifact_type = task_spec.get("artifact_type", "code")
+        latest_error = observation["latest_error"] or "No explicit errors recorded."
+        code_contracts = observation["code_contracts"]
+        behavior_summaries = observation["behavior_summaries"]
+        failure_report = observation["failure_report"]
+        fix_strategy = observation["fix_strategy"]
 
         prompt = f"""
 You are a fix agent in a multi-agent runtime.
@@ -57,6 +69,7 @@ You are a fix agent in a multi-agent runtime.
 Your role is ONLY to repair the existing code.
 Keep as much of the original structure as possible unless a larger change is necessary.
 Address the reported errors and make the code satisfy the user request.
+Use the provided validation report and fix strategy to decide what to change.
 Do NOT explain the fix.
 Do NOT include markdown fences.
 
@@ -72,8 +85,23 @@ User request:
 Current code:
 {observation["generated_code"]}
 
+Latest validation failure:
+{latest_error}
+
 Errors:
 {observation["errors"] or ["No explicit errors recorded."]}
+
+Structured failure report:
+{failure_report or {"status": "FAIL", "summary": latest_error}}
+
+Fix strategy:
+{fix_strategy or {"goal": "Address the latest validation failure."}}
+
+Existing code contracts:
+{code_contracts or ["No code contracts provided."]}
+
+Existing behavior summaries:
+{behavior_summaries or ["No behavior summaries provided."]}
 
 Return ONLY valid {language} code.
 Do not add markdown fences.

@@ -14,6 +14,8 @@ def print_section(title: str):
 def print_runtime_summary(result: TaskState):
     print(f"Plan: {result.plan}")
     print(f"Task spec: {result.task_spec}")
+    print(f"Uploaded files: {result.uploaded_files}")
+    print(f"Retrieved docs: {len(result.retrieved_documents)}")
     print(f"Finished: {result.finished}")
     print(f"Current agent: {result.current_agent}")
     print(f"Step count: {result.step_count}")
@@ -45,14 +47,28 @@ def print_trace_summary(result: TaskState):
 
 
 def main():
+    args = sys.argv[1:]
+    uploaded_files = []
+    remaining_args = []
+
+    index = 0
+    while index < len(args):
+        if args[index] == "--file" and index + 1 < len(args):
+            uploaded_files.append(args[index + 1])
+            index += 2
+            continue
+
+        remaining_args.append(args[index])
+        index += 1
+
     user_request = (
-        " ".join(sys.argv[1:]).strip()
+        " ".join(remaining_args).strip()
         or "write a python function called clamp(value, min_value, max_value) "
            "that returns min_value if value is too small, max_value if value is too "
            "large, otherwise return value. do not use min() or max()"
     )
 
-    result = run_task(user_request, task_id="task_1")
+    result = run_task(user_request, task_id="task_1", uploaded_files=uploaded_files)
 
     print_section("Generated Code")
     print(result.generated_code)

@@ -8,6 +8,7 @@ def create_task_state(
     task_id: str = "task_1",
     next_agent: str = "orchestrator",
     max_steps: int = 20,
+    uploaded_files: list[str] | None = None,
 ) -> TaskState:
     """
     Create a fresh TaskState for a single runtime execution.
@@ -17,6 +18,7 @@ def create_task_state(
         user_request=user_request,
         next_agent=next_agent,
         max_steps=max_steps,
+        uploaded_files=uploaded_files or [],
     )
 
 
@@ -26,6 +28,7 @@ def run_task(
     task_id: str = "task_1",
     next_agent: str = "orchestrator",
     max_steps: int = 20,
+    uploaded_files: list[str] | None = None,
     runtime: AgentRuntime | None = None,
 ) -> TaskState:
     """
@@ -37,5 +40,6 @@ def run_task(
         task_id=task_id,
         next_agent=next_agent,
         max_steps=max_steps,
+        uploaded_files=uploaded_files,
     )
     return runtime.run(state)

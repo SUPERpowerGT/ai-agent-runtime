@@ -11,6 +11,7 @@ def build_task_spec(user_request: str) -> dict:
         "language": detect_language(request_lower),
         "artifact_type": detect_artifact_type(request_lower),
         "domain": detect_domain(request_lower),
+        "task_mode": detect_task_mode(request_lower),
         "constraints": extract_constraints(user_request, request_lower),
     }
 
@@ -65,6 +66,16 @@ def detect_domain(request_lower: str) -> str:
     if "sql" in request_lower or "database" in request_lower:
         return "data"
     return "general"
+
+
+def detect_task_mode(request_lower: str) -> str:
+    if "rewrite" in request_lower or "convert" in request_lower or "translate" in request_lower:
+        return "rewrite"
+    if "optimize" in request_lower or "refactor" in request_lower or "improve" in request_lower:
+        return "optimize"
+    if "add " in request_lower or "extend" in request_lower:
+        return "extend"
+    return "generate"
 
 
 def extract_constraints(user_request: str, request_lower: str) -> list[str]:

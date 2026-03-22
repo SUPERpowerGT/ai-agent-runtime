@@ -49,6 +49,9 @@ class TaskState:
     # --------------------------------------------------
 
     task_spec: Dict[str, Any] = field(default_factory=dict)
+    uploaded_files: List[str] = field(default_factory=list)
+    retrieved_documents: List[Dict[str, Any]] = field(default_factory=list)
+    rag_context: List[str] = field(default_factory=list)
     retrieved_context: List[str] = field(default_factory=list)
     generated_code: str = ""
     test_result: str = ""

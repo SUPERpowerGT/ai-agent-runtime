@@ -1,4 +1,5 @@
 CODE_CHANGING_AGENTS = {"coder", "fix"}
+PLANNER_ALLOWED_AGENTS = {"research", "coder", "tester", "security"}
 
 
 def normalize_plan(plan: list[str]) -> list[str]:
@@ -8,6 +9,8 @@ def normalize_plan(plan: list[str]) -> list[str]:
     normalized_plan = []
 
     for agent_name in plan:
+        if agent_name not in PLANNER_ALLOWED_AGENTS:
+            continue
         if agent_name not in normalized_plan:
             normalized_plan.append(agent_name)
 
@@ -57,6 +60,20 @@ def handle_test_outcome(state, *, max_retries: int):
     根据 tester 结果决定是否进入 fix 闭环。
     """
     if state.test_result == "FAIL":
+        failure_history = state.artifacts.setdefault("failure_history", [])
+        failure_report = state.artifacts.get("failure_report", {})
+        failure_entry = {
+            "summary": failure_report.get("summary", state.error_log[-1] if state.error_log else ""),
+            "code": (state.generated_code or "").strip(),
+        }
+        failure_history.append(failure_entry)
+
+        if should_stop_retry_loop(failure_history):
+            state.add_error("Stopping retry loop early because repeated validation failures show no progress.")
+            state.next_agent = None
+            state.finished = True
+            return state
+
         if state.retry_count < max_retries:
             state.next_agent = "fix"
             state.finished = False
@@ -65,6 +82,7 @@ def handle_test_outcome(state, *, max_retries: int):
             state.finished = True
         return state
 
+    state.artifacts.pop("failure_history", None)
     return set_next_planned_agent(state, "tester")
 
 
@@ -75,3 +93,28 @@ def route_after_fix(state):
     state.next_agent = "tester"
     state.finished = False
     return state
+
+
+def should_stop_retry_loop(failure_history: list[dict]) -> bool:
+    """
+    Stop retrying when failures repeat without meaningful progress.
+    """
+    if len(failure_history) < 2:
+        return False
+
+    latest = failure_history[-1]
+    previous = failure_history[-2]
+
+    same_summary = latest["summary"] == previous["summary"]
+    same_code = latest["code"] == previous["code"]
+
+    if same_summary and same_code:
+        return True
+
+    if len(failure_history) >= 3:
+        last_three = failure_history[-3:]
+        summaries = {entry["summary"] for entry in last_three}
+        if len(summaries) == 1:
+            return True
+
+    return False
