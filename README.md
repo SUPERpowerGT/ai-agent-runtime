@@ -1,15 +1,20 @@
 # Multi-Agent Runtime Framework
 
+[中文](README.zh-CN.md) | **English**
+
+---
+
 A lightweight multi-agent runtime prototype for exploring task orchestration, shared state, retrieval, code generation, validation, and repair around an LLM-driven workflow.
 
-## Overview
+### Overview
 
 This project explores a runtime model where multiple agents collaborate over a shared `TaskState` blackboard instead of passing isolated prompts back and forth.
 
 The current codebase already supports:
 
 - a shared `TaskState` for workflow control, outputs, memory, artifacts, and tracing
-- a unified `BaseAgent` lifecycle: `before_run -> perceive -> think -> validate_output -> act -> after_run`
+- a unified `BaseAgent` lifecycle:
+  `before_run -> perceive -> think -> validate_output -> act -> after_run`
 - a runtime loop and registry-based dispatch
 - local file RAG for uploaded documents
 - web search via DuckDuckGo
@@ -19,7 +24,7 @@ The current codebase already supports:
 
 This is still a prototype framework, but it has moved beyond a bare skeleton. The runtime, research, coder, tester, and fix path are now wired together well enough for realistic experiments.
 
-## Why This Project
+### Why This Project
 
 LLM applications become hard to reason about when planning, retrieval, validation, repair, and safety all live inside one prompt loop.
 
@@ -38,9 +43,9 @@ The design goals are:
 - keep retrieval, validation, repair, and routing explicit
 - support future language adapters, sandboxes, and richer tools
 
-## Architecture
+### Architecture
 
-### Core runtime pieces
+#### Core runtime pieces
 
 - `TaskState`: shared blackboard for plan, next agent, outputs, artifacts, memories, errors, and trace data
 - `BaseAgent`: common lifecycle contract for every agent
@@ -48,13 +53,13 @@ The design goals are:
 - `registry`: runtime registry used to look up agents by name
 - `runtime/api.py`: reusable entry points such as `run_task(...)`
 
-### Runtime layers
+#### Runtime layers
 
 - `runtime/bootstrap/`: bootstrap wiring for agents and tools
 - `runtime/services/`: LLM, logging, task-spec, retrieval, repair, and language analysis helpers
 - `runtime/policies/`: execution and routing policies such as plan normalization and tester/fix transitions
 
-### Current agent roles
+#### Current agent roles
 
 - `OrchestratorAgent`: plans the main execution path
 - `ResearchAgent`: retrieves local document context and web context, then summarizes it
@@ -63,7 +68,7 @@ The design goals are:
 - `FixAgent`: repairs code using a structured failure report and fix strategy
 - `SecurityAgent`: placeholder for security-oriented validation
 
-## Execution Model
+### Execution Model
 
 The runtime centers around a shared `TaskState`.
 
@@ -89,7 +94,7 @@ tester -> fix -> tester
 
 The planner does not need to put `fix` into the main plan; that route is handled by runtime policy.
 
-## Shared State
+### Shared State
 
 `TaskState` includes:
 
@@ -103,7 +108,7 @@ The planner does not need to put `fix` into the main plan; that route is handled
 
 This makes the runtime behave more like a small agent operating system than a thin prompt wrapper.
 
-## Agent Lifecycle
+### Agent Lifecycle
 
 Every agent built on `BaseAgent` follows the same structure:
 
@@ -124,13 +129,11 @@ This keeps reasoning, validation, and mutation separate and makes it easier to a
 - tool logging
 - policy-driven routing
 
-## Retrieval and RAG
+### Retrieval and RAG
 
 The runtime supports a lightweight local-document RAG flow.
 
-### What it can read
-
-Current supported uploaded file types:
+#### Supported uploaded file types
 
 - `.txt`
 - `.md`
@@ -139,7 +142,7 @@ Current supported uploaded file types:
 - `.yaml`
 - `.yml`
 
-### Current retrieval flow
+#### Current retrieval flow
 
 - files are loaded from `--file <path>`
 - documents are chunked
@@ -149,7 +152,7 @@ Current supported uploaded file types:
 
 This is intentionally a lightweight MVP. It is not yet an embedding/vector-store setup.
 
-## Language Adapters
+### Language Adapters
 
 Language-specific code understanding now lives behind adapters in:
 
@@ -169,7 +172,7 @@ The adapter registry is defined in:
 
 - [agent-runtime/runtime/services/languages/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/services/languages/__init__.py)
 
-### Adding a new language
+#### Adding a new language
 
 1. Create `runtime/services/languages/<language>.py`
 2. Implement:
@@ -182,11 +185,11 @@ A starter template already exists for JavaScript:
 
 - [agent-runtime/runtime/services/languages/javascript.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/services/languages/javascript.py)
 
-## Tester and Fix Loop
+### Tester and Fix Loop
 
 The validation path is intentionally layered.
 
-### Tester responsibilities
+#### Tester responsibilities
 
 `TesterAgent` is a validator, not a code generator.
 
@@ -203,7 +206,7 @@ When validation fails, it produces:
 
 These are written into runtime artifacts and consumed by `FixAgent`.
 
-### Fix responsibilities
+#### Fix responsibilities
 
 `FixAgent` does not invent its own repair policy. It consumes:
 
@@ -215,13 +218,13 @@ These are written into runtime artifacts and consumed by `FixAgent`.
 
 This keeps repair logic more general and less tied to one specific bug pattern.
 
-### Retry stopping
+#### Retry stopping
 
 The runtime now includes an early-stop rule for retry loops.
 
 If failures repeat without meaningful progress, the runtime stops retrying instead of always using the full retry budget.
 
-## Observability
+### Observability
 
 The runtime records:
 
@@ -242,7 +245,7 @@ Console logs are intentionally structured:
 
 This makes it easier to distinguish dispatch, tool usage, and model latency.
 
-## Repository Layout
+### Repository Layout
 
 ```text
 agent-runtime/
@@ -263,9 +266,9 @@ agent-runtime/
 └── main.py                    # CLI-style demo runner
 ```
 
-## Running the Project
+### Running the Project
 
-### 1. Install dependencies
+#### 1. Install dependencies
 
 Using `uv`:
 
@@ -275,7 +278,7 @@ uv sync
 
 Or install with your preferred Python environment from `pyproject.toml`.
 
-### 2. Start a local OpenAI-compatible model endpoint
+#### 2. Start a local OpenAI-compatible model endpoint
 
 The default config expects Ollama on:
 
@@ -293,7 +296,7 @@ MODEL = "llama3"
 
 Update `agent-runtime/infra/config.py` if needed.
 
-### 3. Run the demo runner
+#### 3. Run the demo runner
 
 Without uploaded files:
 
@@ -317,7 +320,7 @@ python agent-runtime/main.py \
   "optimize the uploaded python code and keep the same behavior"
 ```
 
-## Using the Runtime as an API
+### Using the Runtime as an API
 
 You can call the runtime directly from Python instead of using `main.py`.
 
@@ -347,9 +350,7 @@ result = run_task(
 )
 ```
 
-## Good Manual Test Cases
-
-Useful requests for exploring the current prototype:
+### Good Manual Test Cases
 
 - `write a python function that returns "hello world" without printing anything`
 - `write a python function called is_even(n) that returns True for even numbers and False for odd numbers`
@@ -357,7 +358,7 @@ Useful requests for exploring the current prototype:
 - `optimize the uploaded python code and keep the same behavior`
 - `rewrite the uploaded order calculation code in javascript`
 
-## Current Status
+### Current Status
 
 Working well enough to explore:
 
@@ -365,21 +366,21 @@ Working well enough to explore:
 - planner/research/coder/tester/fix flow
 - local uploaded-file RAG
 - language adapter structure
-- structured validation and repair handoff
+- structured validation -> repair handoff
 - tracing, timing, and logging
 
 Still evolving:
 
 - richer non-Python language adapters
-- Python sandbox execution for real runtime tests
-- stronger semantic validation beyond heuristic behavior checks
+- Python sandbox execution
+- stronger semantic validation
 - broader automated test coverage
 - more polished CLI / demo UX
 
-## Notes
+### Notes
 
 This repository is best understood as an evolving systems prototype. The runtime abstractions, shared state model, RAG path, and validation/repair pipeline are currently the most mature parts.
 
-## License
+### License
 
 Add a project license here if you plan to distribute or open-source the framework publicly.
