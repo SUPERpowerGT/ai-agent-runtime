@@ -30,6 +30,7 @@
 - CLI 入口：[agent-runtime/main.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/main.py)
 - 运行时公共接口：[agent-runtime/runtime/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/__init__.py)
 - 运行时实现：[agent-runtime/runtime/api.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/api.py)
+- 核心设计说明：[agent-runtime/docs/core-design.zh-CN.md](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/docs/core-design.zh-CN.md)
 - 多轮示例：[agent-runtime/examples/multi_turn_conversation/run_all_turns.sh](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/examples/multi_turn_conversation/run_all_turns.sh)
 
 ## 直接使用
