@@ -1,4 +1,6 @@
 """
 Runtime services such as logging, LLM access helpers, task-spec extraction,
-document retrieval, and language-specific code analysis adapters.
+and language-specific code analysis adapters.
+
+Retrieval-specific logic now lives under the dedicated `rag/` package.
 """

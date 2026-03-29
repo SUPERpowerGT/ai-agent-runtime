@@ -1,0 +1,14 @@
+{
+  "conversations": {
+    "multi-turn-demo": {
+      "conversation_id": "multi-turn-demo",
+      "user_id": "demo-user",
+      "title": "Write a Python function called greet_user(name) that returns the exact string \"H",
+      "created_at": 1774745962.788474,
+      "updated_at": 1774746040.6672761,
+      "last_turn_id": 3,
+      "last_summary": "turn 1: test_result=PASS, generated_code=yes\nturn 2: test_result=PASS, generated_code=yes\nturn 3: test_result=FAIL, generated_code=yes",
+      "session_file": "multi-turn-demo.json"
+    }
+  }
+}

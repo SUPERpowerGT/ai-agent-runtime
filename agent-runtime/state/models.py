@@ -1,7 +1,7 @@
 # state/models.py
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -39,24 +39,21 @@ class SecurityEvent:
     message: str
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-
-@dataclass
-class AgentMemory:
-    """
-    给单个 agent 使用的局部 memory
-    """
-    short_term: Dict[str, Any] = field(default_factory=dict)
-    long_term: List[Dict[str, Any]] = field(default_factory=list)
-
-
 @dataclass
 class RuntimeMetrics:
     """
     运行时统计信息
     """
     total_steps: int = 0
+    dispatch_count: int = 0
     llm_calls: int = 0
     tool_calls: int = 0
+    execution_calls: int = 0
+    execution_failures: int = 0
+    execution_time_ms: float = 0.0
+    queue_wait_ms: float = 0.0
+    runtime_duration_ms: float = 0.0
+    cold_start_ms: float = 0.0
     agent_runs: Dict[str, int] = field(default_factory=dict)
     agent_durations_ms: Dict[str, float] = field(default_factory=dict)
     llm_time_ms: float = 0.0

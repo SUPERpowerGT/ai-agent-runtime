@@ -1,0 +1,220 @@
+{
+  "task_id": "conv2:turn-1",
+  "user_request": "hello world",
+  "user_id": "u1",
+  "conversation_id": "conv2",
+  "turn_id": 1,
+  "latest_user_message": "hello world",
+  "submitted_at": 1774681377.812973,
+  "plan": [
+    "coder",
+    "tester"
+  ],
+  "current_agent": "coder",
+  "next_agent": null,
+  "finished": true,
+  "step_count": 2,
+  "max_steps": 20,
+  "task_spec": {
+    "language": null,
+    "artifact_type": "code",
+    "domain": "general",
+    "task_mode": "generate",
+    "constraints": [
+      "output or represent hello world"
+    ]
+  },
+  "uploaded_files": [],
+  "retrieved_documents": [],
+  "rag_context": [],
+  "retrieved_context": [],
+  "generated_code": "",
+  "test_result": "",
+  "security_report": "",
+  "agent_outputs": {
+    "orchestrator": [
+      "coder",
+      "tester"
+    ]
+  },
+  "working_memory": {},
+  "history": [],
+  "agent_memories": {},
+  "messages": [
+    {
+      "role": "user",
+      "content": "hello world",
+      "user_id": "u1",
+      "conversation_id": "conv2",
+      "turn_id": 1
+    }
+  ],
+  "tool_calls": [],
+  "artifacts": {
+    "route_plan": {
+      "route_name": "heuristic_plan",
+      "recommended_plan": [
+        "coder",
+        "tester"
+      ],
+      "metadata": {
+        "strategy": "heuristic",
+        "reason": "deterministic plan selected without LLM fallback"
+      }
+    },
+    "plan_source": "heuristic",
+    "plan_reason": "deterministic plan selected without LLM fallback",
+    "fatal_error": "coder error: Connection error."
+  },
+  "error_log": [
+    "coder error: Connection error."
+  ],
+  "retry_count": 0,
+  "security_events": [
+    {
+      "level": "warning",
+      "source": "agent",
+      "message": "coder raised an exception",
+      "metadata": {
+        "error": "Connection error."
+      }
+    }
+  ],
+  "trace": [
+    {
+      "agent_name": "orchestrator",
+      "stage": "run",
+      "message": "agent started",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "before_run",
+      "message": "orchestrator started",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "perceive",
+      "message": "reading user request",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "perceive",
+      "message": "perceive completed",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "think",
+      "message": "think completed",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "validate_output",
+      "message": "validation completed",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "act",
+      "message": "execution plan written",
+      "success": true,
+      "metadata": {
+        "plan": [
+          "coder",
+          "tester"
+        ]
+      }
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "act",
+      "message": "act completed",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "after_run",
+      "message": "orchestrator finished",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "orchestrator",
+      "stage": "timing",
+      "message": "agent finished",
+      "success": true,
+      "metadata": {
+        "duration_ms": 0.09
+      }
+    },
+    {
+      "agent_name": "coder",
+      "stage": "run",
+      "message": "agent started",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "coder",
+      "stage": "before_run",
+      "message": "coder started",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "coder",
+      "stage": "perceive",
+      "message": "perceive completed",
+      "success": true,
+      "metadata": {}
+    },
+    {
+      "agent_name": "coder",
+      "stage": "error",
+      "message": "coder error: Connection error.",
+      "success": false,
+      "metadata": {}
+    },
+    {
+      "agent_name": "coder",
+      "stage": "fatal",
+      "message": "runtime stopped after unhandled agent exception",
+      "success": false,
+      "metadata": {}
+    }
+  ],
+  "metrics": {
+    "total_steps": 2,
+    "dispatch_count": 2,
+    "llm_calls": 0,
+    "tool_calls": 0,
+    "execution_calls": 0,
+    "execution_failures": 0,
+    "execution_time_ms": 0.0,
+    "queue_wait_ms": 0.0,
+    "runtime_duration_ms": 1379.6,
+    "cold_start_ms": 0.0,
+    "agent_runs": {
+      "orchestrator": 1,
+      "coder": 1
+    },
+    "agent_durations_ms": {
+      "orchestrator": 0.08529197657480836,
+      "coder": 1379.4936669874005
+    },
+    "llm_time_ms": 0.0,
+    "llm_calls_by_agent": {},
+    "llm_time_by_agent_ms": {}
+  }
+}

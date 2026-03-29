@@ -1,386 +1,279 @@
-# Multi-Agent Runtime Framework
+# Agent Runtime
 
 [中文](README.zh-CN.md) | **English**
 
 ---
 
-A lightweight multi-agent runtime prototype for exploring task orchestration, shared state, retrieval, code generation, validation, and repair around an LLM-driven workflow.
+An experimental multi-agent runtime for code-oriented workflows.
 
-### Overview
+The project is organized into explicit layers:
 
-This project explores a runtime model where multiple agents collaborate over a shared `TaskState` blackboard instead of passing isolated prompts back and forth.
+- `app`: CLI entry and output rendering
+- `runtime`: execution kernel and public integration APIs
+- `workflow`: agent-to-agent flow skeleton
+- `agents`: role-specific reasoning and actions
+- `state`: session, memory, history, and runtime state
+- `observability`: logs, metrics, and trace output
 
-The current codebase already supports:
+You can use it in two ways:
 
-- a shared `TaskState` for workflow control, outputs, memory, artifacts, and tracing
-- a unified `BaseAgent` lifecycle:
-  `before_run -> perceive -> think -> validate_output -> act -> after_run`
-- a runtime loop and registry-based dispatch
-- local file RAG for uploaded documents
-- web search via DuckDuckGo
-- language-specific code analysis adapters
-- a tester/fix validation loop for failed code generations
-- runtime metrics, trace records, and structured logging
+- run it directly from the command line
+- import it as a Python runtime library
 
-This is still a prototype framework, but it has moved beyond a bare skeleton. The runtime, research, coder, tester, and fix path are now wired together well enough for realistic experiments.
+## Project Layout
 
-### Why This Project
+Core code lives in:
 
-LLM applications become hard to reason about when planning, retrieval, validation, repair, and safety all live inside one prompt loop.
+- [agent-runtime/](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime)
 
-This project separates those concerns into runtime-level abstractions so they can be:
+Most important entry points:
 
-- observed
-- extended
-- tested
-- audited
-- replaced independently
+- CLI entry: [agent-runtime/main.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/main.py)
+- Public runtime facade: [agent-runtime/runtime/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/__init__.py)
+- Runtime implementation: [agent-runtime/runtime/api.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/api.py)
+- Multi-turn example: [agent-runtime/examples/multi_turn_conversation/run_all_turns.sh](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/examples/multi_turn_conversation/run_all_turns.sh)
 
-The design goals are:
+## Direct Usage
 
-- coordinate multiple agents through a shared state object
-- standardize agent execution with a common contract
-- keep retrieval, validation, repair, and routing explicit
-- support future language adapters, sandboxes, and richer tools
+### 1. CLI
 
-### Architecture
-
-#### Core runtime pieces
-
-- `TaskState`: shared blackboard for plan, next agent, outputs, artifacts, memories, errors, and trace data
-- `BaseAgent`: common lifecycle contract for every agent
-- `AgentRuntime`: dispatch loop that runs agents until completion or stop conditions
-- `registry`: runtime registry used to look up agents by name
-- `runtime/api.py`: reusable entry points such as `run_task(...)`
-
-#### Runtime layers
-
-- `runtime/bootstrap/`: bootstrap wiring for agents and tools
-- `runtime/services/`: LLM, logging, task-spec, retrieval, repair, and language analysis helpers
-- `runtime/policies/`: execution and routing policies such as plan normalization and tester/fix transitions
-
-#### Current agent roles
-
-- `OrchestratorAgent`: plans the main execution path
-- `ResearchAgent`: retrieves local document context and web context, then summarizes it
-- `CoderAgent`: generates or rewrites code from task spec + research context
-- `TesterAgent`: validates code with a layered approach
-- `FixAgent`: repairs code using a structured failure report and fix strategy
-- `SecurityAgent`: placeholder for security-oriented validation
-
-### Execution Model
-
-The runtime centers around a shared `TaskState`.
-
-1. The runtime reads `state.next_agent`
-2. The registry resolves that agent
-3. The agent reads from shared state during `perceive`
-4. The agent reasons during `think`
-5. The output is normalized in `validate_output`
-6. The agent updates state in `act`
-7. The runtime loops until `finished` or `max_steps`
-
-For code-oriented tasks, the common happy path is:
-
-```text
-orchestrator -> research -> coder -> tester
-```
-
-If validation fails, the runtime can branch into:
-
-```text
-tester -> fix -> tester
-```
-
-The planner does not need to put `fix` into the main plan; that route is handled by runtime policy.
-
-### Shared State
-
-`TaskState` includes:
-
-- workflow control: `plan`, `current_agent`, `next_agent`, `finished`, `step_count`
-- task outputs: `task_spec`, `generated_code`, `test_result`, `security_report`
-- retrieval state: `uploaded_files`, `retrieved_documents`, `rag_context`, `retrieved_context`
-- memory: `working_memory`, `history`, `agent_memories`, `messages`
-- artifacts: `tool_calls`, `artifacts`, `agent_outputs`
-- resilience and safety: `error_log`, `retry_count`, `security_events`
-- observability: `trace`, `metrics`
-
-This makes the runtime behave more like a small agent operating system than a thin prompt wrapper.
-
-### Agent Lifecycle
-
-Every agent built on `BaseAgent` follows the same structure:
-
-```text
-before_run
-  -> perceive
-  -> think
-  -> validate_output
-  -> act
-  -> after_run
-```
-
-This keeps reasoning, validation, and mutation separate and makes it easier to add:
-
-- output guards
-- trace hooks
-- metrics
-- tool logging
-- policy-driven routing
-
-### Retrieval and RAG
-
-The runtime supports a lightweight local-document RAG flow.
-
-#### Supported uploaded file types
-
-- `.txt`
-- `.md`
-- `.py`
-- `.json`
-- `.yaml`
-- `.yml`
-
-#### Current retrieval flow
-
-- files are loaded from `--file <path>`
-- documents are chunked
-- relevant chunks are selected with a lightweight keyword-based retriever
-- `ResearchAgent` uses those chunks plus web search results
-- extracted code contracts and behavior summaries are written back into `TaskState`
-
-This is intentionally a lightweight MVP. It is not yet an embedding/vector-store setup.
-
-### Language Adapters
-
-Language-specific code understanding now lives behind adapters in:
-
-- `agent-runtime/runtime/services/languages/`
-
-The current active adapter is:
-
-- `python.py`
-
-It provides:
-
-- code contract extraction
-- behavior summary extraction
-- static consistency checks
-
-The adapter registry is defined in:
-
-- [agent-runtime/runtime/services/languages/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/services/languages/__init__.py)
-
-#### Adding a new language
-
-1. Create `runtime/services/languages/<language>.py`
-2. Implement:
-   - `extract_code_contracts`
-   - `extract_behavior_summaries`
-   - `check_static_consistency`
-3. Register a `LanguageAdapter` in `runtime/services/languages/__init__.py`
-
-A starter template already exists for JavaScript:
-
-- [agent-runtime/runtime/services/languages/javascript.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/services/languages/javascript.py)
-
-### Tester and Fix Loop
-
-The validation path is intentionally layered.
-
-#### Tester responsibilities
-
-`TesterAgent` is a validator, not a code generator.
-
-It currently combines:
-
-- contract checks
-- language-specific static consistency checks
-- LLM semantic judgment
-
-When validation fails, it produces:
-
-- a structured `failure_report`
-- a derived `fix_strategy`
-
-These are written into runtime artifacts and consumed by `FixAgent`.
-
-#### Fix responsibilities
-
-`FixAgent` does not invent its own repair policy. It consumes:
-
-- the latest validation failure
-- the structured failure report
-- the fix strategy
-- extracted code contracts
-- extracted behavior summaries
-
-This keeps repair logic more general and less tied to one specific bug pattern.
-
-#### Retry stopping
-
-The runtime now includes an early-stop rule for retry loops.
-
-If failures repeat without meaningful progress, the runtime stops retrying instead of always using the full retry budget.
-
-### Observability
-
-The runtime records:
-
-- per-stage trace entries
-- per-agent run counts
-- per-agent durations
-- total LLM calls
-- LLM time by agent
-- tool calls
-- errors and security events
-
-Console logs are intentionally structured:
-
-- `[runtime] ...`
-- `[agent:<name>] ...`
-- `[tool:<name>] ...`
-- `[llm:<name>] ...`
-
-This makes it easier to distinguish dispatch, tool usage, and model latency.
-
-### Repository Layout
-
-```text
-agent-runtime/
-├── agents/                    # Agent implementations and BaseAgent
-├── examples/
-│   └── uploads/               # Sample uploaded files for RAG/manual tests
-├── infra/                     # Config and compatibility shims
-├── runtime/
-│   ├── bootstrap/             # Agent/tool bootstrap wiring
-│   ├── legacy/                # Older runtime leftovers kept for reference
-│   ├── policies/              # Routing and transition policies
-│   ├── services/              # LLM, logging, retrieval, repair, language adapters
-│   ├── api.py                 # Reusable runtime entry points
-│   ├── engine.py              # Runtime loop
-│   └── registry.py            # Agent registry
-├── state/                     # TaskState and record models
-├── tools/                     # Tool abstractions and providers
-└── main.py                    # CLI-style demo runner
-```
-
-### Running the Project
-
-#### 1. Install dependencies
-
-Using `uv`:
+Basic usage:
 
 ```bash
-uv sync
+python agent-runtime/main.py "write a python function called greet_user(name) that returns Hello, {name}!"
 ```
 
-Or install with your preferred Python environment from `pyproject.toml`.
-
-#### 2. Start a local OpenAI-compatible model endpoint
-
-The default config expects Ollama on:
-
-```text
-http://127.0.0.1:11434/v1
-```
-
-Current defaults:
-
-```python
-BASE_URL = "http://127.0.0.1:11434/v1"
-API_KEY = "ollama"
-MODEL = "llama3"
-```
-
-Update `agent-runtime/infra/config.py` if needed.
-
-#### 3. Run the demo runner
-
-Without uploaded files:
+With explicit session identity:
 
 ```bash
-python agent-runtime/main.py
+python agent-runtime/main.py \
+  --user-id demo-user \
+  --conversation-id demo-conversation \
+  "write a python function called greet_user(name) that returns Hello, {name}!"
 ```
 
-With an explicit request:
+Resume the same conversation:
 
 ```bash
-python agent-runtime/main.py "write a python function called is_even(n) that returns True for even numbers and False for odd numbers"
+python agent-runtime/main.py \
+  --resume \
+  --conversation-id demo-conversation \
+  "keep greet_user and add greet_formally(name, title)"
 ```
 
 With uploaded files:
 
 ```bash
 python agent-runtime/main.py \
-  --file agent-runtime/examples/uploads/test1.py \
-  --file agent-runtime/examples/uploads/test2.py \
-  --file agent-runtime/examples/uploads/context.md \
-  "optimize the uploaded python code and keep the same behavior"
+  --file path/to/input.py \
+  "optimize this uploaded python code"
 ```
 
-### Using the Runtime as an API
+The CLI will:
 
-You can call the runtime directly from Python instead of using `main.py`.
+- parse arguments
+- restore or create a session
+- call the runtime
+- persist the session
+- print generated code, runtime summary, and trace summary
+
+### 2. Example Scenario
+
+Run the bundled multi-turn example:
+
+```bash
+bash agent-runtime/examples/multi_turn_conversation/run_all_turns.sh
+```
+
+This demonstrates:
+
+- turn 1 session creation
+- turn 2 resume
+- turn 3 resume
+- final session inspection
+
+Related example docs:
+
+- [agent-runtime/examples/multi_turn_conversation/README.md](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/examples/multi_turn_conversation/README.md)
+
+## Public Runtime API
+
+If you want to integrate this project as a Python library, import from:
+
+- [agent-runtime/runtime/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/__init__.py)
+
+Current public entry points:
+
+- `create_task_state(...)`
+- `run_task(...)`
+- `run_queued_tasks(...)`
+- `run_conversation_turn(...)`
+- `build_runtime_container(...)`
+
+The underlying implementations live in:
+
+- [agent-runtime/runtime/api.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/api.py)
+- [agent-runtime/runtime/container.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/container.py)
+
+### Single Turn
 
 ```python
 from runtime import run_task
 
-result = run_task(
-    "write a python function called is_even(n) that returns True for even numbers and False for odd numbers"
+state = run_task(
+    "write a python function called greet_user(name) that returns Hello, {name}!",
+    user_id="demo-user",
+    conversation_id="demo-conversation",
+    turn_id=1,
 )
 
-print(result.generated_code)
-print(result.test_result)
+print(state.generated_code)
+print(state.test_result)
 ```
 
-With uploaded files:
+### Multi-Turn Conversation
 
 ```python
-from runtime import run_task
+from runtime import run_conversation_turn
 
-result = run_task(
-    "optimize the uploaded python code and keep the same behavior",
-    uploaded_files=[
-        "agent-runtime/examples/uploads/test1.py",
-        "agent-runtime/examples/uploads/test2.py",
-        "agent-runtime/examples/uploads/context.md",
-    ],
+state = run_conversation_turn(
+    "write a python function called greet_user(name) that returns Hello, {name}!",
+    user_id="demo-user",
+    conversation_id="demo-conversation",
+    turn_id=1,
 )
+
+state = run_conversation_turn(
+    "keep greet_user and add greet_formally(name, title)",
+    state=state,
+)
+
+print(state.generated_code)
+print(state.test_result)
 ```
 
-### Good Manual Test Cases
+### Queued Batch Execution
 
-- `write a python function that returns "hello world" without printing anything`
-- `write a python function called is_even(n) that returns True for even numbers and False for odd numbers`
-- `write a python function called clamp(value, min_value, max_value) that returns min_value if value is too small, max_value if value is too large, otherwise return value. do not use min() or max()`
-- `optimize the uploaded python code and keep the same behavior`
-- `rewrite the uploaded order calculation code in javascript`
+Use this when you want to submit multiple independent tasks at once and let the
+runtime execute them through its in-memory queue.
 
-### Current Status
+This is useful for:
 
-Working well enough to explore:
+- quick batch experiments
+- queue and dispatch testing
+- measuring runtime-level scheduling behavior
 
-- shared runtime state
-- planner/research/coder/tester/fix flow
-- local uploaded-file RAG
-- language adapter structure
-- structured validation -> repair handoff
-- tracing, timing, and logging
+This is not the right API for multi-turn conversation continuation. For
+multi-turn conversation, use `run_conversation_turn(...)` instead.
 
-Still evolving:
+```python
+from runtime import run_queued_tasks
 
-- richer non-Python language adapters
-- Python sandbox execution
-- stronger semantic validation
-- broader automated test coverage
-- more polished CLI / demo UX
+results = run_queued_tasks([
+    {"user_request": "write a python clamp function", "task_id": "task-1"},
+    {"user_request": "write a python slugify function", "task_id": "task-2"},
+])
 
-### Notes
+for state in results:
+    print(state.task_id, state.test_result)
+```
 
-This repository is best understood as an evolving systems prototype. The runtime abstractions, shared state model, RAG path, and validation/repair pipeline are currently the most mature parts.
+What happens here:
 
-### License
+1. each dictionary becomes one independent task request
+2. the runtime pushes them into an in-memory queue
+3. the scheduler runs them one by one
+4. the function returns a list of final `TaskState` objects
 
-Add a project license here if you plan to distribute or open-source the framework publicly.
+So `results` is a list of task results, not a conversation history.
+
+### Custom Runtime Container
+
+If you want to replace pieces such as:
+
+- agent registry
+- tool registry
+- skill manager
+- workflow manager
+
+build a custom container first, then pass it into `AgentRuntime` or the `run_*`
+APIs.
+
+Entry point:
+
+- [agent-runtime/runtime/container.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/container.py)
+
+## Execution Path
+
+Current main path:
+
+```text
+main.py
+-> app/cli.py
+-> runtime/api.py
+-> runtime/engine.py
+-> runtime/container.py
+-> agent.run(state)
+-> workflow.resolve_next(...)
+-> loop until completion
+```
+
+More concretely:
+
+1. `main.py` forwards to the CLI
+2. the CLI parses input and restores session state
+3. `runtime/api.py` creates or resumes `TaskState`
+4. `runtime/engine.py` starts the agent loop
+5. `orchestrator` owns task understanding and planning
+6. `workflow` owns agent-to-agent transitions
+7. `runtime` owns execution, dispatch, wiring, and cleanup
+
+## Design Boundary
+
+The current intended boundary is:
+
+- `agents` keep their own reasoning
+- `workflow` keeps only the flow skeleton
+- `runtime` keeps execution management and public APIs
+
+So when adding a new agent, the normal change surface should mainly be:
+
+1. the agent implementation in `agents/`
+2. registry registration in `runtime`
+3. workflow integration in `workflow`
+
+You should not need to redesign runtime execution flow for each new agent.
+
+## Current Status
+
+The project already supports:
+
+- multi-agent coordination
+- shared `TaskState`
+- single-turn and multi-turn sessions
+- session persistence and resume
+- runtime metrics and traces
+- a basic research / coder / tester / fix loop
+- constrained sandbox execution
+
+It is still a prototype, but it is already usable for realistic multi-turn code workflow experiments.
+
+## Known Limitations
+
+This project is now in a good place to wrap up as an architecture and runtime
+prototype, but there are still some known limitations:
+
+- the `runtime`, `workflow`, session persistence, and agent dispatch layers are
+  already structured and usable
+- the `tester -> fix -> tester` quality loop is still evolving, and some
+  multi-turn code tasks may still fail to repair cleanly
+- scripts in `examples/` are best treated as runnable demos and flow examples,
+  not as strict benchmarks for final code quality
+- some validation still depends on a mix of rule-based checks and LLM
+  judgment, so behavior-level correctness is not fully deterministic yet
+
+In short:
+
+- the architecture is stable enough to present and extend
+- the code-generation and auto-repair quality chain is still the main area for
+  future improvement

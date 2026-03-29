@@ -20,12 +20,11 @@ from runtime.services.languages.python import (
     extract_code_contracts as extract_python_code_contracts,
     check_static_consistency as check_python_static_consistency,
 )
-# Example future registration:
-# from runtime.services.languages.javascript import (
-#     extract_behavior_summaries as extract_javascript_behavior_summaries,
-#     extract_code_contracts as extract_javascript_code_contracts,
-#     check_static_consistency as check_javascript_static_consistency,
-# )
+from runtime.services.languages.javascript import (
+    extract_behavior_summaries as extract_javascript_behavior_summaries,
+    extract_code_contracts as extract_javascript_code_contracts,
+    check_static_consistency as check_javascript_static_consistency,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +36,12 @@ class LanguageAdapter:
 
 
 _ADAPTERS: dict[str, LanguageAdapter] = {
+    "javascript": LanguageAdapter(
+        name="javascript",
+        extract_code_contracts=extract_javascript_code_contracts,
+        extract_behavior_summaries=extract_javascript_behavior_summaries,
+        check_static_consistency=check_javascript_static_consistency,
+    ),
     "python": LanguageAdapter(
         name="python",
         extract_code_contracts=extract_python_code_contracts,

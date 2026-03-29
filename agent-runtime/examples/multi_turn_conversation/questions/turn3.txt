@@ -1,0 +1,2 @@
+Continue the same conversation. Keep both previous functions and add a third Python function called greet_many(names) that returns a list of greeting strings using the same greeting style as before.
+Do not change the previous public APIs.

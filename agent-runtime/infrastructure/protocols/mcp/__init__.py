@@ -1,0 +1,4 @@
+"""
+Minimal MCP infrastructure primitives.
+"""
+

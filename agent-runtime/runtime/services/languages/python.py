@@ -169,7 +169,7 @@ def split_params(raw_params: str) -> list[str]:
     return params
 
 
-def normalize_function_body(body: str, max_lines: int = 4) -> str:
+def normalize_function_body(body: str, max_lines: int = 8) -> str:
     lines = []
 
     for line in body.splitlines():

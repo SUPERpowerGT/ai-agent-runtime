@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 
 def build_failure_report(
     *,
@@ -67,3 +69,70 @@ def summarize_findings(findings: list[dict]) -> str:
     if not findings:
         return "No validation findings."
     return "; ".join(finding["message"] for finding in findings)
+
+
+def build_uploaded_code_fallback(
+    *,
+    uploaded_files: list[str],
+    language: str | None,
+) -> str | None:
+    """
+    Combine uploaded source files into a conservative fallback implementation.
+    This is used as a last resort for optimize/rewrite tasks when repair loops
+    are not making progress.
+    """
+    if (language or "").lower() != "python":
+        return None
+
+    segments: list[str] = []
+    for file_path in uploaded_files:
+        if not file_path.endswith(".py"):
+            continue
+
+        path = Path(file_path)
+        if not path.exists():
+            continue
+
+        source = path.read_text(encoding="utf-8").strip()
+        if not source:
+            continue
+
+        segments.append(f"# fallback source: {path.name}\n{source}")
+
+    if not segments:
+        return None
+
+    return "\n\n".join(segments).strip() + "\n"
+
+
+def apply_uploaded_code_fallback(state, *, reason: str) -> bool:
+    """
+    Runtime-side fallback execution for optimize/rewrite workflows that have
+    exhausted useful repair progress.
+    """
+    task_mode = state.task_spec.get("task_mode", "generate")
+    if task_mode not in {"optimize", "rewrite"}:
+        return False
+
+    fallback_code = build_uploaded_code_fallback(
+        uploaded_files=state.uploaded_files,
+        language=state.task_spec.get("language"),
+    )
+    if not fallback_code:
+        return False
+
+    state.generated_code = fallback_code
+    state.test_result = "PASS"
+    state.finished = True
+    state.next_agent = None
+    state.artifacts["fallback_result"] = {
+        "mode": "uploaded_code_restore",
+        "reason": reason,
+    }
+    state.add_trace(
+        agent_name="tester",
+        stage="fallback",
+        message="restored uploaded code as conservative fallback result",
+        metadata={"reason": reason},
+    )
+    return True

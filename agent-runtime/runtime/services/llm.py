@@ -1,8 +1,8 @@
 import time
 
 from openai import OpenAI
-from infra import config
-from runtime.services.logging import log_llm
+from infrastructure.llm import config
+from observability.logging import log_llm
 
 client = OpenAI(
     api_key=config.API_KEY,

@@ -1,6 +1,7 @@
 from agents.base_agent import BaseAgent
-from runtime.services.logging import log_agent, preview_text
+from observability.logging import log_agent, preview_text
 from runtime.services.llm import call_llm
+from state.read_context import StateReadPolicy
 from state.state import TaskState
 
 
@@ -11,37 +12,25 @@ class SecurityAgent(BaseAgent):
 
     name = "security"
     description = "Perform a simple security scan over generated code"
-
-    # --------------------------------------------------
-    # Lifecycle Hooks
-    # --------------------------------------------------
-
-    def before_run(self, state: TaskState):
-        log_agent(self.name, "starting")
-
-        state.add_trace(
-            agent_name=self.name,
-            stage="before_run",
-            message="security agent started",
-        )
-
-    def after_run(self, state: TaskState):
-        state.add_trace(
-            agent_name=self.name,
-            stage="after_run",
-            message="security agent finished",
-        )
+    before_run_trace_message = "security agent started"
+    after_run_trace_message = "security agent finished"
+    state_read_policy = StateReadPolicy(
+        conversation_message_limit=2,
+        history_limit=2,
+        memory_keys=("user_id", "conversation_id", "session_summary"),
+        memory_max_items=4,
+        memory_max_chars=300,
+    )
 
     # --------------------------------------------------
     # Core Agent Stages
     # --------------------------------------------------
 
     def perceive(self, state: TaskState):
-        return {
-            "state": state,
-            "user_request": state.user_request,
-            "generated_code": state.generated_code,
-        }
+        return self.build_prompt_observation(
+            state,
+            generated_code=state.generated_code,
+        )
 
     def think(self, observation):
         prompt = f"""
@@ -54,6 +43,18 @@ Mark code as UNSAFE only if there is a clear security concern.
 
 User request:
 {observation["user_request"]}
+
+Latest user message:
+{observation["latest_user_message"]}
+
+Recent conversation context:
+{observation["conversation_context"]}
+
+Archived turn history:
+{observation["history_context"]}
+
+Session memory:
+{observation["memory_context"]}
 
 Generated code:
 {observation["generated_code"]}
@@ -75,8 +76,6 @@ Keep the reason short and security-specific.
     def act(self, decision, state: TaskState) -> TaskState:
         state.security_report = decision["report"]
         state.record_agent_output(self.name, state.security_report)
-        self.advance_to_next_planned_agent(state)
-
         return state
 
     # --------------------------------------------------

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 
 def extract_code_contracts(documents: list[dict]) -> list[dict]:
     """
@@ -48,4 +50,15 @@ def check_static_consistency(task_spec: dict, code: str) -> str | None:
     - Prefer catching obvious contract mismatches before adding heavier logic
     - Return None when no issue is found, otherwise return a short failure reason
     """
+    if code.count("{") != code.count("}"):
+        return "JavaScript syntax check failed: unmatched curly braces"
+
+    if code.count("(") != code.count(")"):
+        return "JavaScript syntax check failed: unmatched parentheses"
+
+    if task_spec.get("artifact_type") in {"function", "script", "code"}:
+        has_function = bool(re.search(r"\bfunction\b|\=\s*(?:async\s*)?\(.*?\)\s*=>", code, re.DOTALL))
+        if not has_function:
+            return "Expected JavaScript function-like code"
+
     return None

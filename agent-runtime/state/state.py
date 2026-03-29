@@ -1,15 +1,16 @@
 # state/state.py
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import time
 from typing import Any, Dict, List, Optional
 
 from state.models import (
-    AgentMemory,
     RuntimeMetrics,
     SecurityEvent,
     ToolCallRecord,
     TraceRecord,
 )
+from state.read_context import StateReadContext, StateReadPolicy
 
 
 @dataclass
@@ -30,6 +31,11 @@ class TaskState:
 
     task_id: str
     user_request: str
+    user_id: str = "user_1"
+    conversation_id: str = "conversation_1"
+    turn_id: int = 1
+    latest_user_message: str = ""
+    submitted_at: float = field(default_factory=time.time)
 
     # --------------------------------------------------
     # Workflow Control
@@ -65,16 +71,19 @@ class TaskState:
     # --------------------------------------------------
 
     # 全局短期 memory，适合 router / orchestrator / runtime 共用
-    working_memory: Dict[str, Any] = field(default_factory=dict)
+    local_memory: Dict[str, Any] = field(default_factory=dict)
+
+    # 当前轮上下文，适合所有 agent 读取“这一次在做什么”
+    current_turn: Dict[str, Any] = field(default_factory=dict)
+
+    # 会话级 memory，适合长期保存用户偏好、已确认约束、稳定上下文
+    memory: Dict[str, Any] = field(default_factory=dict)
 
     # 全局长期历史
     history: List[Dict[str, Any]] = field(default_factory=list)
 
-    # 每个 agent 的独立 memory
-    agent_memories: Dict[str, AgentMemory] = field(default_factory=dict)
-
     # LLM / agent message 记录
-    messages: List[Dict[str, Any]] = field(default_factory=list)
+    conversation_log: List[Dict[str, Any]] = field(default_factory=list)
 
     # --------------------------------------------------
     # Tools / Artifacts
@@ -176,39 +185,397 @@ class TaskState:
         """
         记录消息，适合 LLM 对话、agent reasoning 摘要等
         """
-        self.messages.append({
+        self.conversation_log.append({
             "role": role,
             "content": content,
             **metadata,
         })
 
-    def remember(
+    def append_user_message(self, content: str, **metadata) -> None:
+        """
+        在单会话模式下追加一轮新的用户输入。
+        """
+        self.turn_id += 1
+        self.user_request = content
+        self.latest_user_message = content
+        self.current_turn = {
+            "turn_id": self.turn_id,
+            "user_message": content,
+            "status": "active",
+            "uploaded_files": list(self.uploaded_files),
+        }
+        self.add_message(
+            "user",
+            content,
+            conversation_id=self.conversation_id,
+            user_id=self.user_id,
+            turn_id=self.turn_id,
+            **metadata,
+        )
+
+    def sync_current_turn_uploads(self) -> None:
+        """
+        Keep the current-turn view aligned with the canonical uploaded-files list.
+        """
+        if not self.current_turn:
+            return
+        self.current_turn["uploaded_files"] = list(self.uploaded_files)
+
+    def active_user_request(self) -> str:
+        """
+        Return the current turn's effective user request.
+        """
+        return self.latest_user_message or self.user_request
+
+    def current_turn_context(self) -> Dict[str, Any]:
+        """
+        Return the normalized current-turn view for all agents.
+        """
+        if self.current_turn:
+            return dict(self.current_turn)
+        return {
+            "turn_id": self.turn_id,
+            "user_message": self.active_user_request(),
+            "status": "active",
+            "uploaded_files": list(self.uploaded_files),
+        }
+
+    def execution_flow_context(self) -> Dict[str, Any]:
+        """
+        Return the current execution-flow view for the active run.
+        """
+        return {
+            "plan": list(self.plan),
+            "current_agent": self.current_agent,
+            "next_agent": self.next_agent,
+            "finished": self.finished,
+            "step_count": self.step_count,
+            "max_steps": self.max_steps,
+        }
+
+    def conversation_log_context(self, *, limit: int = 6) -> str:
+        """
+        Return recent conversation-log entries for the active window.
+        """
+        return self.recent_conversation_context(limit=limit)
+
+    def _ensure_memory_buckets(self) -> None:
+        """
+        Normalize memory into profile / episodic / vector buckets.
+        """
+        if not isinstance(self.memory, dict):
+            self.memory = {}
+
+        profile = self.memory.get("profile_memory")
+        episodic = self.memory.get("episodic_memory")
+        vector = self.memory.get("vector_memory")
+
+        if not isinstance(profile, dict):
+            legacy_profile = {
+                key: value
+                for key, value in self.memory.items()
+                if key not in {"profile_memory", "episodic_memory", "vector_memory"}
+            }
+            profile = legacy_profile
+        if not isinstance(episodic, list):
+            episodic = []
+        if not isinstance(vector, list):
+            vector = []
+
+        self.memory = {
+            "profile_memory": profile,
+            "episodic_memory": episodic,
+            "vector_memory": vector,
+        }
+
+    def profile_memory(self) -> Dict[str, Any]:
+        self._ensure_memory_buckets()
+        return self.memory["profile_memory"]
+
+    def episodic_memory(self) -> List[Dict[str, Any]]:
+        self._ensure_memory_buckets()
+        return self.memory["episodic_memory"]
+
+    def vector_memory(self) -> List[Dict[str, Any]]:
+        self._ensure_memory_buckets()
+        return self.memory["vector_memory"]
+
+    def _flatten_memory_view(self) -> Dict[str, Any]:
+        """
+        Build a prompt-friendly flattened memory view over the structured buckets.
+        """
+        self._ensure_memory_buckets()
+        flattened = dict(self.profile_memory())
+        episodes = self.episodic_memory()
+        if episodes:
+            flattened["episodic_count"] = len(episodes)
+            latest = episodes[-1]
+            if latest.get("summary"):
+                flattened["latest_episode_summary"] = latest["summary"]
+        vectors = self.vector_memory()
+        if vectors:
+            flattened["vector_memory_count"] = len(vectors)
+        return flattened
+
+    def workspace_context(self) -> Dict[str, Any]:
+        """
+        Return the normalized live workspace view for the current run.
+        """
+        return {
+            "current_turn": self.current_turn_context(),
+            "execution_flow": self.execution_flow_context(),
+            "generated_code": bool(self.generated_code),
+            "test_result": self.test_result,
+            "local_memory_keys": sorted(self.local_memory.keys()),
+            "tool_call_count": len(self.tool_calls),
+            "artifact_keys": sorted(self.artifacts.keys()),
+            "error_count": len(self.error_log),
+            "conversation_log_count": len(self.conversation_log),
+            "trace_count": len(self.trace),
+        }
+
+    def session_context(self) -> Dict[str, Any]:
+        """
+        Return the compact session-level view used across turns.
+        """
+        flattened_memory = self._flatten_memory_view()
+        return {
+            "user_id": self.user_id,
+            "conversation_id": self.conversation_id,
+            "turn_id": self.turn_id,
+            "profile_memory_keys": sorted(self.profile_memory().keys()),
+            "episodic_memory_count": len(self.episodic_memory()),
+            "vector_memory_count": len(self.vector_memory()),
+            "memory_keys": sorted(flattened_memory.keys()),
+            "history_count": len(self.history),
+            "conversation_log_count": len(self.conversation_log),
+        }
+
+    def recent_conversation_context(self, *, limit: int = 6) -> str:
+        """
+        Render recent conversation turns into a compact plain-text block.
+        """
+        if not self.conversation_log:
+            return ""
+
+        selected = self.conversation_log[-limit:]
+        lines = []
+        for message in selected:
+            role = message.get("role", "unknown")
+            content = (message.get("content") or "").strip()
+            if not content:
+                continue
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
+    def recent_history_context(self, *, limit: int = 4) -> str:
+        """
+        Render compact turn summaries from archived history.
+        """
+        if not self.history:
+            return ""
+
+        lines = []
+        for item in self.history[-limit:]:
+            turn_id = item.get("turn_id", "?")
+            user_message = (item.get("user_message") or "").strip()
+            summary = (item.get("summary") or "").strip()
+            if summary:
+                lines.append(f"turn {turn_id}: {user_message} -> {summary}")
+            elif user_message:
+                lines.append(f"turn {turn_id}: {user_message}")
+        return "\n".join(lines)
+
+    def remember_memory(self, key: str, value: Any) -> None:
+        """
+        Persist stable session-level context across turns.
+        """
+        self.profile_memory()[key] = value
+
+    def recall_memory(self, key: str, default: Any = None) -> Any:
+        """
+        Read stable session-level context.
+        """
+        return self._flatten_memory_view().get(key, default)
+
+    def remember_episode(self, *, summary: str, status: str, turn_id: int | None = None) -> None:
+        """
+        Persist one episodic memory record for the session.
+        """
+        episodes = self.episodic_memory()
+        episode_turn_id = turn_id if turn_id is not None else self.current_turn_id()
+        if episodes and episodes[-1].get("turn_id") == episode_turn_id:
+            episodes[-1].update({"summary": summary, "status": status})
+            return
+        episodes.append({
+            "turn_id": episode_turn_id,
+            "summary": summary,
+            "status": status,
+        })
+
+    def remember_vector_memory(self, record: Dict[str, Any]) -> None:
+        """
+        Placeholder hook for vector-memory style recall records.
+        """
+        self.vector_memory().append(dict(record))
+
+    def memory_context(self) -> str:
+        """
+        Render session memory into a compact prompt-friendly block.
+        """
+        return self.filtered_memory_context()
+
+    def filtered_memory_context(
         self,
-        agent_name: str,
-        key: str,
-        value: Any,
-        long_term: bool = False,
+        *,
+        keys: tuple[str, ...] = (),
+        max_items: int = 8,
+        max_chars: int = 800,
+    ) -> str:
+        """
+        Render a bounded subset of session memory.
+        """
+        if not self.memory:
+            return ""
+
+        lines = []
+        flattened = self._flatten_memory_view()
+        items = flattened.items()
+        if keys:
+            items = [(key, flattened[key]) for key in keys if key in flattened]
+
+        for key, value in list(items)[:max_items]:
+            lines.append(f"{key}: {value}")
+        content = "\n".join(lines)
+        return content[:max_chars].strip()
+
+    def filtered_local_memory_context(
+        self,
+        *,
+        keys: tuple[str, ...] = (),
+        max_items: int = 4,
+        max_chars: int = 1200,
+    ) -> str:
+        """
+        Render a bounded subset of turn-local working memory.
+        """
+        if not self.local_memory:
+            return ""
+
+        lines = []
+        items = self.local_memory.items()
+        if keys:
+            items = [(key, self.local_memory[key]) for key in keys if key in self.local_memory]
+
+        for key, value in list(items)[:max_items]:
+            lines.append(f"{key}: {value}")
+        content = "\n".join(lines)
+        return content[:max_chars].strip()
+
+    def build_read_context(self, policy: StateReadPolicy) -> StateReadContext:
+        """
+        Build a normalized, bounded read view for agents.
+        """
+        return StateReadContext(
+            user_request=self.user_request,
+            latest_user_message=self.active_user_request(),
+            current_turn=self.current_turn_context(),
+            conversation_context=self.recent_conversation_context(limit=policy.conversation_message_limit),
+            history_context=self.recent_history_context(limit=policy.history_limit),
+            memory_context=self.filtered_memory_context(
+                keys=policy.memory_keys,
+                max_items=policy.memory_max_items,
+                max_chars=policy.memory_max_chars,
+            ),
+            local_memory=self.filtered_local_memory_context(
+                keys=policy.local_memory_keys,
+                max_items=policy.local_memory_max_items,
+                max_chars=policy.local_memory_max_chars,
+            ),
+        )
+
+    def clear_transient_task_state(self) -> None:
+        """
+        Clear transient per-task workspace fields before the next turn starts.
+        """
+        self.plan = []
+        self.current_agent = None
+        self.next_agent = None
+        self.finished = False
+        self.step_count = 0
+        self.task_spec = {}
+        self.retrieved_documents = []
+        self.rag_context = []
+        self.retrieved_context = []
+        self.generated_code = ""
+        self.test_result = ""
+        self.security_report = ""
+        self.agent_outputs = {}
+        self.local_memory = {}
+        self.tool_calls = []
+        self.artifacts = {}
+        self.error_log = []
+        self.retry_count = 0
+        self.security_events = []
+        self.trace = []
+        self.metrics = RuntimeMetrics()
+
+    def current_turn_id(self) -> int:
+        turn = self.current_turn_context()
+        return int(turn.get("turn_id", self.turn_id))
+
+    def is_current_turn_archived(self) -> bool:
+        if not self.history:
+            return False
+        return self.history[-1].get("turn_id") == self.current_turn_id()
+
+    def mark_current_turn_finished(
+        self,
+        *,
+        status: str,
+        summary: str,
     ) -> None:
         """
-        给指定 agent 写入 memory
+        Mark the live current turn with a finalized status and summary.
         """
-        if agent_name not in self.agent_memories:
-            self.agent_memories[agent_name] = AgentMemory()
+        turn = self.current_turn_context()
+        turn["status"] = status
+        turn["summary"] = summary
+        self.current_turn = turn
 
-        memory = self.agent_memories[agent_name]
-
-        if long_term:
-            memory.long_term.append({key: value})
-        else:
-            memory.short_term[key] = value
-
-    def recall(self, agent_name: str, key: str, default: Any = None) -> Any:
+    def archive_current_turn(self, *, summary: str | None = None) -> None:
         """
-        从指定 agent 的 short-term memory 读取值
+        Archive the current turn into conversation history before the next turn starts.
         """
-        if agent_name not in self.agent_memories:
-            return default
-        return self.agent_memories[agent_name].short_term.get(key, default)
+        turn = self.current_turn_context()
+        if not turn:
+            return
+
+        if self.is_current_turn_archived():
+            return
+
+        turn_summary = summary or self._build_turn_summary()
+        self.history.append({
+            "turn_id": turn.get("turn_id", self.turn_id),
+            "user_message": turn.get("user_message", self.active_user_request()),
+            "summary": turn_summary,
+            "plan": list(self.plan),
+            "task_spec": dict(self.task_spec),
+            "test_result": self.test_result,
+            "current_agent": self.current_agent,
+            "finished": self.finished,
+        })
+
+    def _build_turn_summary(self) -> str:
+        if self.test_result:
+            return f"test_result={self.test_result}"
+        if self.generated_code:
+            return "generated code available"
+        if self.local_memory.get("research"):
+            return "research summary available"
+        if self.plan:
+            return f"plan={self.plan}"
+        return "turn completed"
 
     def record_agent_output(self, agent_name: str, output: Any) -> None:
         """
@@ -247,8 +614,103 @@ class TaskState:
                 self.metrics.llm_time_by_agent_ms.get(agent_name, 0.0) + duration_ms
             )
 
+    def record_dispatch(self) -> None:
+        """
+        记录一次 runtime dispatch。
+        """
+        self.metrics.dispatch_count += 1
+
+    def record_queue_wait(self, duration_ms: float) -> None:
+        """
+        记录任务在调度队列中的等待时间。
+        """
+        self.metrics.queue_wait_ms = round(duration_ms, 2)
+
+    def record_runtime_duration(self, duration_ms: float) -> None:
+        """
+        记录单次任务运行总耗时。
+        """
+        self.metrics.runtime_duration_ms = round(duration_ms, 2)
+
+    def record_cold_start(self, duration_ms: float) -> None:
+        """
+        记录 runtime/container 的冷启动耗时。
+        """
+        self.metrics.cold_start_ms = round(duration_ms, 2)
+
+    def record_execution_call(self, duration_ms: float, *, success: bool) -> None:
+        """
+        记录一次执行后端调用的耗时和结果。
+        """
+        self.metrics.execution_calls += 1
+        self.metrics.execution_time_ms += duration_ms
+        if not success:
+            self.metrics.execution_failures += 1
+
     def can_continue(self) -> bool:
         """
         runtime 是否还能继续执行
         """
         return (not self.finished) and (self.step_count < self.max_steps)
+
+    def to_snapshot(self) -> Dict[str, Any]:
+        """
+        Serialize the full session state into a JSON-friendly snapshot.
+        """
+        return asdict(self)
+
+    @classmethod
+    def from_snapshot(cls, payload: Dict[str, Any]) -> "TaskState":
+        """
+        Rehydrate a TaskState from a previously saved snapshot.
+        """
+        trace = [
+            TraceRecord(**item)
+            for item in payload.get("trace", [])
+        ]
+        tool_calls = [
+            ToolCallRecord(**item)
+            for item in payload.get("tool_calls", [])
+        ]
+        security_events = [
+            SecurityEvent(**item)
+            for item in payload.get("security_events", [])
+        ]
+        metrics = RuntimeMetrics(**payload.get("metrics", {}))
+
+        return cls(
+            task_id=payload["task_id"],
+            user_request=payload["user_request"],
+            user_id=payload.get("user_id", "user_1"),
+            conversation_id=payload.get("conversation_id", "conversation_1"),
+            turn_id=payload.get("turn_id", 1),
+            latest_user_message=payload.get("latest_user_message", ""),
+            submitted_at=payload.get("submitted_at", time.time()),
+            plan=payload.get("plan", []),
+            current_agent=payload.get("current_agent"),
+            next_agent=payload.get("next_agent"),
+            finished=payload.get("finished", False),
+            step_count=payload.get("step_count", 0),
+            max_steps=payload.get("max_steps", 20),
+            task_spec=payload.get("task_spec", {}),
+            uploaded_files=payload.get("uploaded_files", []),
+            retrieved_documents=payload.get("retrieved_documents", []),
+            rag_context=payload.get("rag_context", []),
+            retrieved_context=payload.get("retrieved_context", []),
+            generated_code=payload.get("generated_code", ""),
+            test_result=payload.get("test_result", ""),
+            security_report=payload.get("security_report", ""),
+            agent_outputs=payload.get("agent_outputs", {}),
+            local_memory=payload.get("local_memory", {}),
+            current_turn=payload.get("current_turn", {}),
+            memory=payload.get("memory", {}),
+            history=payload.get("history", []),
+            conversation_log=payload.get("conversation_log", []),
+            tool_calls=tool_calls,
+            artifacts=payload.get("artifacts", {}),
+            error_log=payload.get("error_log", []),
+            retry_count=payload.get("retry_count", 0),
+            security_events=security_events,
+            trace=trace,
+            metrics=metrics,
+        )

@@ -1,0 +1,2 @@
+Continue the same conversation and keep the previous function. Add a second Python function called greet_formally(name, title) that returns "Hello, {title} {name}!".
+Keep the code concise and consistent with the previous turn.

@@ -1,386 +1,274 @@
-# Multi-Agent Runtime Framework
+# Agent Runtime
 
 **中文** | [English](README.md)
 
 ---
 
-一个轻量的多智能体运行时原型，用来探索基于 LLM 的任务编排、共享状态、检索增强、代码生成、验证与修复。
+一个面向多 Agent 代码任务的运行时原型。  
+它把一次任务拆成明确的几层：
 
-### 项目概览
+- `app`：命令行入口与输出
+- `runtime`：执行内核与对外公共接口
+- `workflow`：Agent 之间的流程骨架
+- `agents`：各角色自己的行为与决策
+- `state`：会话、记忆、历史与运行时状态
+- `observability`：日志、指标与 trace
 
-这个项目在探索一种 runtime 模型：多个 agent 通过共享的 `TaskState` blackboard 协作，而不是彼此传递孤立的 prompt。
+你可以通过两种方式使用它：
 
-当前代码库已经支持：
+- 直接从命令行运行
+- 作为 Python 运行时库集成到自己的代码里
 
-- 共享 `TaskState`，统一管理流程控制、输出、memory、artifacts 和 tracing
-- 统一的 `BaseAgent` 生命周期：
-  `before_run -> perceive -> think -> validate_output -> act -> after_run`
-- 运行时循环和基于 registry 的 agent 调度
-- 用户上传文件的本地 RAG
-- DuckDuckGo web search
-- language-specific code analysis adapters
-- tester / fix 验证与修复闭环
-- 结构化日志、trace 和 metrics
+## 目录说明
 
-它仍然是一个原型框架，但已经不再只是 skeleton。现在 `orchestrator / research / coder / tester / fix` 这条链已经可以支持比较真实的实验。
+核心代码在：
 
-### 为什么要做这个项目
+- [agent-runtime/](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime)
 
-当 planning、retrieval、validation、repair、safety 全都混在一个大 prompt 循环里时，LLM 应用会越来越难维护。
+最常用的入口有：
 
-这个项目把这些职责拆到 runtime abstraction 里，让它们可以被：
+- CLI 入口：[agent-runtime/main.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/main.py)
+- 运行时公共接口：[agent-runtime/runtime/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/__init__.py)
+- 运行时实现：[agent-runtime/runtime/api.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/api.py)
+- 多轮示例：[agent-runtime/examples/multi_turn_conversation/run_all_turns.sh](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/examples/multi_turn_conversation/run_all_turns.sh)
 
-- 观察
-- 扩展
-- 测试
-- 审计
-- 独立替换
+## 直接使用
 
-设计目标包括：
+### 1. 命令行使用
 
-- 用共享状态对象协调多个 agent
-- 用统一 contract 标准化 agent 执行
-- 显式保留 retrieval、validation、repair 和 routing
-- 为未来的 language adapters、sandbox 和更丰富的 tools 留出空间
-
-### 架构
-
-#### 核心运行时组件
-
-- `TaskState`：共享 blackboard，存放 plan、next agent、输出、artifacts、memory、errors 和 trace
-- `BaseAgent`：所有 agent 的统一生命周期 contract
-- `AgentRuntime`：主循环，负责调度 agent 直到结束或达到上限
-- `registry`：按名称查找 agent 的注册中心
-- `runtime/api.py`：统一入口，比如 `run_task(...)`
-
-#### runtime 分层
-
-- `runtime/bootstrap/`：agent/tool 的 bootstrap 和 wiring
-- `runtime/services/`：LLM、logging、task-spec、retrieval、repair、language analysis 等服务
-- `runtime/policies/`：plan normalization、tester/fix transitions 等策略
-
-#### 当前 agent 角色
-
-- `OrchestratorAgent`：规划主执行路径
-- `ResearchAgent`：结合本地文档和 web 搜索做 research
-- `CoderAgent`：基于 task spec 和 research context 生成或改写代码
-- `TesterAgent`：分层验证代码
-- `FixAgent`：根据结构化 failure report 和 fix strategy 修复代码
-- `SecurityAgent`：安全检查占位 agent
-
-### 执行模型
-
-runtime 围绕共享 `TaskState` 工作：
-
-1. runtime 读取 `state.next_agent`
-2. registry 解析对应 agent
-3. agent 在 `perceive` 阶段读取共享状态
-4. agent 在 `think` 阶段推理
-5. 输出在 `validate_output` 阶段被标准化
-6. agent 在 `act` 阶段修改 state
-7. runtime 持续循环，直到 `finished` 或 `max_steps`
-
-代码任务的常见主线流程是：
-
-```text
-orchestrator -> research -> coder -> tester
-```
-
-如果验证失败，runtime 会动态进入：
-
-```text
-tester -> fix -> tester
-```
-
-`fix` 不需要出现在初始 plan 中，它由 runtime policy 在测试失败后自动进入。
-
-### 共享状态
-
-`TaskState` 当前包含：
-
-- 流程控制：`plan`, `current_agent`, `next_agent`, `finished`, `step_count`
-- 任务输出：`task_spec`, `generated_code`, `test_result`, `security_report`
-- 检索状态：`uploaded_files`, `retrieved_documents`, `rag_context`, `retrieved_context`
-- memory：`working_memory`, `history`, `agent_memories`, `messages`
-- artifacts：`tool_calls`, `artifacts`, `agent_outputs`
-- 容错和安全：`error_log`, `retry_count`, `security_events`
-- 可观测性：`trace`, `metrics`
-
-这让 runtime 更像一个小型 agent OS，而不是简单的 prompt wrapper。
-
-### Agent 生命周期
-
-所有继承 `BaseAgent` 的 agent 都遵循同一套结构：
-
-```text
-before_run
-  -> perceive
-  -> think
-  -> validate_output
-  -> act
-  -> after_run
-```
-
-这种设计让 reasoning、validation 和 mutation 更分离，也更方便加入：
-
-- output guards
-- trace hooks
-- metrics
-- tool logging
-- policy-driven routing
-
-### Retrieval 与 RAG
-
-runtime 现在支持一个轻量的本地文档 RAG 流程。
-
-#### 当前支持的上传文件类型
-
-- `.txt`
-- `.md`
-- `.py`
-- `.json`
-- `.yaml`
-- `.yml`
-
-#### 当前检索流程
-
-- 通过 `--file <path>` 传入文件
-- 文档被切分成 chunks
-- 用轻量关键词匹配检索相关 chunks
-- `ResearchAgent` 同时利用本地 chunks 和 web search 结果
-- 提取出的 code contracts 和 behavior summaries 会写回 `TaskState`
-
-这是一个有意保持轻量的 MVP，目前还不是 embedding / vector store 方案。
-
-### Language Adapters
-
-语言相关的代码理解能力现在被放进 adapters：
-
-- `agent-runtime/runtime/services/languages/`
-
-当前已启用的 adapter：
-
-- `python.py`
-
-它负责：
-
-- code contract 提取
-- behavior summary 提取
-- static consistency checks
-
-adapter registry 定义在：
-
-- [agent-runtime/runtime/services/languages/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/services/languages/__init__.py)
-
-#### 如何新增一种语言
-
-1. 新建 `runtime/services/languages/<language>.py`
-2. 实现：
-   - `extract_code_contracts`
-   - `extract_behavior_summaries`
-   - `check_static_consistency`
-3. 在 `runtime/services/languages/__init__.py` 注册 `LanguageAdapter`
-
-JavaScript 的 starter template 已经提供：
-
-- [agent-runtime/runtime/services/languages/javascript.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/services/languages/javascript.py)
-
-### Tester 与 Fix 闭环
-
-验证路径是分层设计的。
-
-#### Tester 的职责
-
-`TesterAgent` 是 validator，不是 code generator。
-
-当前它组合了：
-
-- contract checks
-- language-specific static consistency checks
-- LLM semantic judgment
-
-验证失败时，它会生成：
-
-- 结构化 `failure_report`
-- 对应的 `fix_strategy`
-
-这些内容会写入 runtime artifacts，并被 `FixAgent` 消费。
-
-#### Fix 的职责
-
-`FixAgent` 不自己发明修复策略，它依赖：
-
-- 最新的 validation failure
-- 结构化 failure report
-- fix strategy
-- code contracts
-- behavior summaries
-
-这样 repair 逻辑更通用，也不会和某个特定 bug case 绑死。
-
-#### Retry 提前止损
-
-runtime 现在有一个通用的 retry stop 规则。
-
-如果失败重复出现但没有明显进展，runtime 会提前停止，而不是总是把重试次数跑满。
-
-### 可观测性
-
-runtime 当前会记录：
-
-- 每个阶段的 trace
-- 每个 agent 的执行次数
-- 每个 agent 的耗时
-- 总 LLM 调用次数
-- 每个 agent 的 LLM 耗时
-- tool calls
-- errors 和 security events
-
-终端日志也已经结构化：
-
-- `[runtime] ...`
-- `[agent:<name>] ...`
-- `[tool:<name>] ...`
-- `[llm:<name>] ...`
-
-这样更容易分辨 dispatch、tool usage 和 model latency。
-
-### 目录结构
-
-```text
-agent-runtime/
-├── agents/                    # Agent implementations and BaseAgent
-├── examples/
-│   └── uploads/               # Sample uploaded files for RAG/manual tests
-├── infra/                     # Config and compatibility shims
-├── runtime/
-│   ├── bootstrap/             # Agent/tool bootstrap wiring
-│   ├── legacy/                # Older runtime leftovers kept for reference
-│   ├── policies/              # Routing and transition policies
-│   ├── services/              # LLM, logging, retrieval, repair, language adapters
-│   ├── api.py                 # Reusable runtime entry points
-│   ├── engine.py              # Runtime loop
-│   └── registry.py            # Agent registry
-├── state/                     # TaskState and record models
-├── tools/                     # Tool abstractions and providers
-└── main.py                    # CLI-style demo runner
-```
-
-### 运行项目
-
-#### 1. 安装依赖
-
-使用 `uv`：
+最直接的方式：
 
 ```bash
-uv sync
+python agent-runtime/main.py "write a python function called greet_user(name) that returns Hello, {name}!"
 ```
 
-也可以使用你自己的 Python 环境，从 `pyproject.toml` 安装。
-
-#### 2. 启动本地 OpenAI-compatible 模型服务
-
-默认配置期望 Ollama 运行在：
-
-```text
-http://127.0.0.1:11434/v1
-```
-
-当前默认值：
-
-```python
-BASE_URL = "http://127.0.0.1:11434/v1"
-API_KEY = "ollama"
-MODEL = "llama3"
-```
-
-需要时可以修改 `agent-runtime/infra/config.py`。
-
-#### 3. 运行 demo runner
-
-不带上传文件：
+带上会话信息：
 
 ```bash
-python agent-runtime/main.py
+python agent-runtime/main.py \
+  --user-id demo-user \
+  --conversation-id demo-conversation \
+  "write a python function called greet_user(name) that returns Hello, {name}!"
 ```
 
-带明确请求：
+继续同一个多轮会话：
 
 ```bash
-python agent-runtime/main.py "write a python function called is_even(n) that returns True for even numbers and False for odd numbers"
+python agent-runtime/main.py \
+  --resume \
+  --conversation-id demo-conversation \
+  "keep greet_user and add greet_formally(name, title)"
 ```
 
 带上传文件：
 
 ```bash
 python agent-runtime/main.py \
-  --file agent-runtime/examples/uploads/test1.py \
-  --file agent-runtime/examples/uploads/test2.py \
-  --file agent-runtime/examples/uploads/context.md \
-  "optimize the uploaded python code and keep the same behavior"
+  --file path/to/input.py \
+  "optimize this uploaded python code"
 ```
 
-### 作为 API 使用
+CLI 会自动做这些事：
 
-你也可以不走 `main.py`，而是直接从 Python 调 runtime。
+- 解析参数
+- 恢复或创建 session
+- 调用 runtime
+- 保存 session
+- 打印生成代码、运行摘要和 trace 摘要
+
+### 2. 示例脚本
+
+多轮示例可以直接跑：
+
+```bash
+bash agent-runtime/examples/multi_turn_conversation/run_all_turns.sh
+```
+
+这个示例会演示：
+
+- turn 1 新建会话
+- turn 2 续接会话
+- turn 3 再续接
+- 最后检查保存下来的 session 内容
+
+相关说明在：
+
+- [agent-runtime/examples/multi_turn_conversation/README.md](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/examples/multi_turn_conversation/README.md)
+
+## 对外公共接口
+
+如果你不是想跑 CLI，而是想在自己的 Python 代码里直接使用，建议从：
+
+- [agent-runtime/runtime/__init__.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/__init__.py)
+
+这里进入。
+
+它现在对外暴露的核心接口有：
+
+- `create_task_state(...)`
+- `run_task(...)`
+- `run_queued_tasks(...)`
+- `run_conversation_turn(...)`
+- `build_runtime_container(...)`
+
+这些接口的实际实现都在：
+
+- [agent-runtime/runtime/api.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/api.py)
+- [agent-runtime/runtime/container.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/container.py)
+
+### 1. 单轮运行
 
 ```python
 from runtime import run_task
 
-result = run_task(
-    "write a python function called is_even(n) that returns True for even numbers and False for odd numbers"
+state = run_task(
+    "write a python function called greet_user(name) that returns Hello, {name}!",
+    user_id="demo-user",
+    conversation_id="demo-conversation",
+    turn_id=1,
 )
 
-print(result.generated_code)
-print(result.test_result)
+print(state.generated_code)
+print(state.test_result)
 ```
 
-带上传文件：
+### 2. 多轮会话
 
 ```python
-from runtime import run_task
+from runtime import run_conversation_turn
 
-result = run_task(
-    "optimize the uploaded python code and keep the same behavior",
-    uploaded_files=[
-        "agent-runtime/examples/uploads/test1.py",
-        "agent-runtime/examples/uploads/test2.py",
-        "agent-runtime/examples/uploads/context.md",
-    ],
+state = run_conversation_turn(
+    "write a python function called greet_user(name) that returns Hello, {name}!",
+    user_id="demo-user",
+    conversation_id="demo-conversation",
+    turn_id=1,
 )
+
+state = run_conversation_turn(
+    "keep greet_user and add greet_formally(name, title)",
+    state=state,
+)
+
+print(state.generated_code)
+print(state.test_result)
 ```
 
-### 推荐的手动测试用例
+### 3. 批量队列运行
 
-- `write a python function that returns "hello world" without printing anything`
-- `write a python function called is_even(n) that returns True for even numbers and False for odd numbers`
-- `write a python function called clamp(value, min_value, max_value) that returns min_value if value is too small, max_value if value is too large, otherwise return value. do not use min() or max()`
-- `optimize the uploaded python code and keep the same behavior`
-- `rewrite the uploaded order calculation code in javascript`
+这个接口适合：
 
-### 当前状态
+- 一次提交多个彼此独立的任务
+- 让 runtime 按内存队列顺序执行
+- 做批量实验、队列调度测试、runtime 行为验证
 
-目前已经比较适合探索：
+它不适合同一个会话的一轮一轮续聊。  
+如果是多轮对话，请用 `run_conversation_turn(...)`。
 
-- shared runtime state
-- planner/research/coder/tester/fix 流程
-- 本地上传文件 RAG
-- language adapter 结构
-- 结构化 validation -> repair handoff
-- tracing、timing 和 logging
+```python
+from runtime import run_queued_tasks
 
-仍在继续演进：
+results = run_queued_tasks([
+    {"user_request": "write a python clamp function", "task_id": "task-1"},
+    {"user_request": "write a python slugify function", "task_id": "task-2"},
+])
 
-- 更丰富的非 Python language adapters
-- Python sandbox execution
-- 更强的 semantic validation
-- 更完整的自动化测试
-- 更完善的 CLI / demo 体验
+for state in results:
+    print(state.task_id, state.test_result)
+```
 
-### 备注
+这段代码实际做的是：
 
-这个仓库更适合被理解为一个持续演进的 systems prototype。当前最成熟的部分是 runtime abstraction、shared state、RAG 路径，以及 validation/repair pipeline。
+1. 列表里的每个字典都会变成一个独立任务
+2. runtime 先把这些任务放进内存队列
+3. scheduler 再按顺序一个个执行
+4. 最后返回每个任务执行结束后的 `TaskState`
 
-### License
+所以这里的 `results`：
 
-如果你准备对外分发或开源，可以在这里补上项目 license。
+- 不是对话历史
+- 也不是单个结果
+- 而是一组任务最终状态对象
+
+### 4. 自定义 runtime container
+
+如果你后面想替换：
+
+- agent registry
+- tool registry
+- skill manager
+- workflow manager
+
+可以先自己构建 container，再把它交给 `AgentRuntime` 或 `run_*` 系列接口。
+
+入口在：
+
+- [agent-runtime/runtime/container.py](/Users/zee/xuziyi/projects/ai-agent-runtime/agent-runtime/runtime/container.py)
+
+## 运行流程
+
+现在主路径是：
+
+```text
+main.py
+-> app/cli.py
+-> runtime/api.py
+-> runtime/engine.py
+-> runtime/container.py
+-> agent.run(state)
+-> workflow.resolve_next(...)
+-> 继续循环直到结束
+```
+
+更具体一点：
+
+1. `main.py` 转发到 CLI
+2. CLI 解析参数并恢复会话
+3. `runtime/api.py` 创建或恢复 `TaskState`
+4. `runtime/engine.py` 开始 agent loop
+5. `orchestrator` 负责任务理解与规划
+6. `workflow` 负责 agent 之间的跳转
+7. `runtime` 负责执行、调度、容器装配和收尾
+
+## 设计边界
+
+这个项目现在遵守的边界是：
+
+- `agent` 保留自己的脑子
+- `workflow` 只保留流程骨架
+- `runtime` 只保留执行管理与对外接口
+
+所以后面如果新增一个 Agent，正常应该主要改：
+
+1. `agents/` 里的 agent 实现
+2. `runtime/registry` 里的注册
+3. `workflow` 里的流程接入
+
+正常情况下，不应该为了一个新 Agent 回头重写 runtime 的执行设计。
+
+## 当前状态
+
+现在已经具备这些能力：
+
+- 多 Agent 协作执行
+- 共享 `TaskState`
+- 单轮和多轮会话
+- session 持久化与恢复
+- runtime 指标与 trace
+- 基础 research / coder / tester / fix 闭环
+- 受限 sandbox 执行
+
+它仍然是一个原型，但已经不只是空壳，已经可以用来跑真实的多轮代码任务实验。
+
+## 当前限制
+
+这个项目现在已经适合以“架构原型”和“运行时原型”的状态收尾，但仍然有一些已知限制：
+
+- `runtime`、`workflow`、session 持久化和 agent 调度这几层已经比较稳定，也已经可以直接使用
+- `tester -> fix -> tester` 这条质量闭环还在继续演进，多轮代码任务里仍然可能出现“能发现问题，但不一定修得很干净”的情况
+- `examples/` 下面的脚本更适合用来演示流程连续性和 session 持久化，不建议现在把它当成最终代码质量的严格基准
+- 当前一部分验证仍然是“规则校验 + LLM 判断”的混合方式，所以行为级正确性还没有做到完全确定
+
+一句话说：
+
+- 架构层已经足够稳定，适合展示、讲解和继续扩展
+- 代码生成与自动修复质量这条链路，仍然是后续最值得继续优化的方向

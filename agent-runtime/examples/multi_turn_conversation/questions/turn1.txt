@@ -1,0 +1,2 @@
+Write a Python function called greet_user(name) that returns the exact string "Hello, {name}!".
+In this conversation, remember that I prefer concise code.
